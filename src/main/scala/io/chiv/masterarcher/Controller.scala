@@ -2,6 +2,7 @@ package io.chiv.masterarcher
 
 import java.io.File
 import java.nio.file.{CopyOption, Files, Path, StandardCopyOption}
+import java.util.UUID
 
 import cats.effect.IO
 import com.typesafe.scalalogging.StrictLogging

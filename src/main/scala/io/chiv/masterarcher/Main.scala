@@ -16,8 +16,8 @@ object Main extends App {
   val WaitTimeBetweenShotAndScreenshot     = 3500
   val WaitTimeBetweenScreenshotAndNextShot = 1500
 
-  val targetTemplateFile = new File(getClass.getResource("/templates/target-template.png").getFile)
-  val MATCHING_THRESHOLD = 0.85
+  val targetTemplateFile         = new File(getClass.getResource("/templates/target-template.png").getFile)
+  val MATCHING_THRESHOLD: Double = 0.85
 
   val driver = new FirefoxDriver()
 //  val visionClient              = GoogleVisionClient()
