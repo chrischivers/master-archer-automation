@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.file.{CopyOption, Files, Path, StandardCopyOption}
 
 import cats.effect.IO
+import com.typesafe.scalalogging.StrictLogging
 import io.chiv.masterarcher.imageprocessing.ocr.OCRClient
 import io.chiv.masterarcher.imageprocessing.transformation.{ImageTransformationClient, ScrimageClient}
 import org.openqa.selenium.chrome.ChromeDriver
@@ -20,7 +21,7 @@ trait Controller {
   def captureScreen: IO[Array[Byte]]
 }
 
-object Controller {
+object Controller extends StrictLogging {
 
   def apply(driver: RemoteWebDriver,
             targetName: String,
@@ -44,11 +45,12 @@ object Controller {
 
       override def captureScore: IO[Option[Score]] =
         for {
-          byteArray        <- IO(driver.getScreenshotAs(OutputType.BYTES))
-          croppedByteArray <- imageProcessingClient.cropScoreFromImage(byteArray)
-//        texts            <- ocrClient.processImage(croppedByteArray)
-          texts <- IO(List("10"))
-        } yield texts.flatMap(safeToInt).headOption.map(Score)
+          byteArray             <- IO(driver.getScreenshotAs(OutputType.BYTES))
+          croppedByteArray      <- imageProcessingClient.cropScoreFromImage(byteArray)
+          textsRecognised       <- ocrClient.stringsFromImage(croppedByteArray)
+          _                     <- IO(logger.info(s"Text recognised from image: $textsRecognised"))
+          textsRecognisedTidied <- IO(textsRecognised.map(_.trim.replace(" ", "").replace("\n", "")))
+        } yield textsRecognisedTidied.flatMap(safeToInt).headOption.map(Score)
 
       override def captureScreen: IO[Array[Byte]] = IO(driver.getScreenshotAs(OutputType.BYTES))
 

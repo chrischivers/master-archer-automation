@@ -8,5 +8,5 @@ import com.google.protobuf.ByteString
 import scala.collection.JavaConverters._
 
 trait OCRClient {
-  def processImage(data: Array[Byte]): IO[List[String]]
+  def stringsFromImage(data: Array[Byte]): IO[List[String]]
 }

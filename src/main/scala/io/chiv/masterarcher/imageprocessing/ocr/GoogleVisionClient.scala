@@ -10,7 +10,7 @@ object GoogleVisionClient {
   def apply() = new OCRClient {
     val visionClient = ImageAnnotatorClient.create()
 
-    override def processImage(data: Array[Byte]): IO[List[String]] = IO {
+    override def stringsFromImage(data: Array[Byte]): IO[List[String]] = IO {
       val imgBytes      = ByteString.copyFrom(data)
       val img           = Image.newBuilder.setContent(imgBytes).build
       val feat          = Feature.newBuilder.setType(Type.TEXT_DETECTION).build
