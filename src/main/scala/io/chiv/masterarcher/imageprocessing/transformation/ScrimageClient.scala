@@ -8,8 +8,9 @@ object ScrimageClient {
 
     implicit val writer: PngWriter = PngWriter.NoCompression
 
-    override def cropScoreFromImage(in: Array[Byte]): IO[Array[Byte]] = IO {
-      Image(in).resizeTo(200, 250, Position.TopCenter).bytes
-    }
+    override def cropAreaFromImage(in: Array[Byte], width: Int, height: Int, position: Position): IO[Array[Byte]] =
+      IO {
+        Image(in).resizeTo(width, height, position).bytes
+      }
   }
 }

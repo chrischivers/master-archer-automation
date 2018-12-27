@@ -1,9 +1,8 @@
 package io.chiv.masterarcher.imageprocessing.transformation
 
 import cats.effect.IO
-import com.sksamuel.scrimage.nio.PngWriter
-import com.sksamuel.scrimage.{Image, Position}
+import com.sksamuel.scrimage.Position
 
 trait ImageTransformationClient {
-  def cropScoreFromImage(in: Array[Byte]): IO[Array[Byte]]
+  def cropAreaFromImage(in: Array[Byte], width: Int, height: Int, position: Position): IO[Array[Byte]]
 }

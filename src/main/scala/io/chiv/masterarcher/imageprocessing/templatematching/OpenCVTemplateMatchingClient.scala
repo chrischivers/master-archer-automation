@@ -1,22 +1,18 @@
 package io.chiv.masterarcher.imageprocessing.templatematching
 import java.io.File
+import java.nio.DoubleBuffer
 
 import cats.effect.IO
-import io.chiv.masterarcher.Coordinate
-import org.bytedeco.javacpp.DoublePointer
+import com.typesafe.scalalogging.StrictLogging
+import io.chiv.masterarcher.Coordinates
 import org.bytedeco.javacpp.opencv_core.{Mat, _}
 import org.bytedeco.javacpp.opencv_imgcodecs._
 import org.bytedeco.javacpp.opencv_imgproc._
-import java.nio.DoubleBuffer
-
-import com.typesafe.scalalogging.StrictLogging
-
-import scala.util.Try
 
 object OpenCVTemplateMatchingClient extends StrictLogging {
   def apply(matchingThreshold: Double): TemplateMatchingClient = new TemplateMatchingClient {
 
-    override def matchLocationIn(templateMatchingFile: File, sourceImg: Array[Byte]): IO[Option[Coordinate]] = IO {
+    override def matchLocationIn(templateMatchingFile: File, sourceImg: Array[Byte]): IO[Option[Coordinates]] = IO {
 
       logger.info(
         s"Attempting match on template file ${templateMatchingFile.getName} with matching threshold $matchingThreshold")
@@ -40,7 +36,7 @@ object OpenCVTemplateMatchingClient extends StrictLogging {
       if (matchingCoefficient >= matchingThreshold) {
         logger.info(
           s"Matching coefficient ($matchingCoefficient) is above threshold ($matchingThreshold). Returning (${max.x}, ${max.y})")
-        Some(Coordinate(max.x, max.y)) //corresponds to top left corner of matching rectangle
+        Some(Coordinates(max.x, max.y)) //corresponds to top left corner of matching rectangle
       } else None
 
     }

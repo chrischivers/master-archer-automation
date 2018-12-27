@@ -1,33 +1,20 @@
 package io.chiv.masterarcher
 
-import java.io.File
-import java.nio.file.{CopyOption, Files, Path, StandardCopyOption}
-import java.util.UUID
-
 import cats.effect.IO
 import com.typesafe.scalalogging.StrictLogging
-import io.chiv.masterarcher.imageprocessing.ocr.OCRClient
-import io.chiv.masterarcher.imageprocessing.transformation.{ImageTransformationClient, ScrimageClient}
-import org.openqa.selenium.chrome.ChromeDriver
+import org.openqa.selenium.OutputType
 import org.openqa.selenium.interactions.Actions
 import org.openqa.selenium.remote.RemoteWebDriver
-import org.openqa.selenium.{OutputType, WebElement}
-
-import scala.util.Try
 
 trait Controller {
   def click: IO[Unit]
-  def takeShot(holdTimeMillis: Long): IO[Unit]
-  def captureScore: IO[Option[Score]]
+  def takeShot(holdTimeMillis: HoldTime): IO[Unit]
   def captureScreen: IO[Array[Byte]]
 }
 
 object Controller extends StrictLogging {
 
-  def apply(driver: RemoteWebDriver,
-            targetName: String,
-            ocrClient: OCRClient,
-            imageProcessingClient: ImageTransformationClient) =
+  def apply(driver: RemoteWebDriver, targetName: String) =
     new Controller {
 
       val actions     = new Actions(driver)
@@ -36,25 +23,15 @@ object Controller extends StrictLogging {
       override def click: IO[Unit] =
         IO(actions.clickAndHold(target).pause(10).release().perform())
 
-      override def takeShot(holdTimeMillis: Long): IO[Unit] =
+      override def takeShot(holdTime: HoldTime): IO[Unit] =
         IO(
           actions
             .clickAndHold(target)
-            .pause(holdTimeMillis)
+            .pause(holdTime.value.toMillis)
             .release()
             .perform())
-
-      override def captureScore: IO[Option[Score]] =
-        for {
-          byteArray             <- IO(driver.getScreenshotAs(OutputType.BYTES))
-          croppedByteArray      <- imageProcessingClient.cropScoreFromImage(byteArray)
-          textsRecognised       <- ocrClient.stringsFromImage(croppedByteArray)
-          _                     <- IO(logger.info(s"Text recognised from image: $textsRecognised"))
-          textsRecognisedTidied <- IO(textsRecognised.map(_.trim.replace(" ", "").replace("\n", "")))
-        } yield textsRecognisedTidied.flatMap(safeToInt).headOption.map(Score)
 
       override def captureScreen: IO[Array[Byte]] = IO(driver.getScreenshotAs(OutputType.BYTES))
 
     }
-  private def safeToInt(str: String) = Try(str.toInt).toOption
 }

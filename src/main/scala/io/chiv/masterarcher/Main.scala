@@ -1,88 +1,78 @@
 package io.chiv.masterarcher
 import java.io.File
 
-import io.chiv.masterarcher.imageprocessing.ocr.{GoogleVisionClient, TemplateMatchingOCRClient}
+import cats.effect.IO
+import cats.effect.concurrent.Ref
+import cats.syntax.flatMap._
+import com.typesafe.scalalogging.StrictLogging
+import io.chiv.masterarcher.imageprocessing.learning.RefLearningStore
+import io.chiv.masterarcher.imageprocessing.ocr.TemplateMatchingOCRClient
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
 import io.chiv.masterarcher.imageprocessing.transformation.ScrimageClient
-import org.openqa.selenium.chrome.ChromeDriver
 import org.openqa.selenium.firefox.FirefoxDriver
 
-object Main extends App {
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
+
+object Main extends App with StrictLogging {
+
+  implicit val timer = IO.timer(ExecutionContext.global)
 
   System.setProperty("webdriver.gecko.driver", "/Users/chrichiv/Downloads/geckodriver") //todo remove from code
 
-  val WaitTimeToLoadApp                    = 7000
-  val WaitTimeToLoadInstructions           = 4000
-  val WaitTimeBetweenShotAndScreenshot     = 3500
-  val WaitTimeBetweenScreenshotAndNextShot = 1500
+  val WaitTimeToLoadApp                    = 7000.milliseconds
+  val WaitTimeToLoadInstructions           = 4000.milliseconds
+  val WaitTimeBetweenScreenshotAndNextShot = 1500.milliseconds
 
   val targetTemplateFile         = new File(getClass.getResource("/templates/target-template.png").getFile)
   val MATCHING_THRESHOLD: Double = 0.85
 
   val driver = new FirefoxDriver()
-//  val visionClient              = GoogleVisionClient()
-//  val googleVisionOCRClient           = GoogleVisionClient()
+
   val imageTransformationClient = ScrimageClient()
   val templateMatchingClient    = OpenCVTemplateMatchingClient(MATCHING_THRESHOLD)
   val templateMatchingOCRClient = TemplateMatchingOCRClient(templateMatchingClient)
-  val controller                = Controller(driver, "frame", templateMatchingOCRClient, imageTransformationClient)
+  val controller                = Controller(driver, "frame")
 
-  driver.get("https://playcanv.as/p/JERg21J8/")
-  Thread.sleep(WaitTimeToLoadApp) //wait to load main screen
+  val app = for {
+    learningStoreRef <- Ref.of[IO, Map[Coordinates, Map[HoldTime, Score]]](Map.empty)
+    learningStore = RefLearningStore(learningStoreRef)
+    gameRunner = GameRunner(controller,
+                            templateMatchingClient,
+                            learningStore,
+                            imageTransformationClient,
+                            templateMatchingOCRClient)
+    _ <- IO(driver.get("https://playcanv.as/p/JERg21J8/"))
+    _ <- IO.sleep(WaitTimeToLoadApp) //wait to load main screen
+    _ <- controller.click //advance to instruction screen
+    _ <- IO.sleep(WaitTimeToLoadInstructions) //wait for instruction screen to load
+    _ <- controller.click //advance to game
+    _ <- playFrames(gameRunner)(Score.Zero)
+    _ <- IO(driver.quit())
 
-  controller.click.unsafeRunSync()         //advance to instruction screen
-  Thread.sleep(WaitTimeToLoadInstructions) //wait for instruction screen to load
-  controller.click.unsafeRunSync()         //advance to game
+  } yield ()
 
-  Thread.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for game to load
-  templateMatchingClient.matchLocationIn(targetTemplateFile, controller.captureScreen.unsafeRunSync()).unsafeRunSync()
-  controller.takeShot(600).unsafeRunSync() //frame 1
-  Thread.sleep(WaitTimeBetweenShotAndScreenshot)
-  val score1 = controller.captureScore.unsafeRunSync()
-  println("Score: " + score1)
-//
-//  Thread.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for next frame to load
-//  templateMatchingClient.matchLocationIn(controller.captureScreen.unsafeRunSync()).unsafeRunSync()
-//  controller.takeShot(600).unsafeRunSync() //frame 2
-//  Thread.sleep(WaitTimeBetweenShotAndScreenshot)
-//  val score2 = controller.captureScore.unsafeRunSync()
-//  println("Score: " + score2)
-//
-//  Thread.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for next frame to load
-//  templateMatchingClient.matchLocationIn(controller.captureScreen.unsafeRunSync()).unsafeRunSync()
-//  controller.takeShot(600).unsafeRunSync() //frame 3
-//  Thread.sleep(WaitTimeBetweenShotAndScreenshot)
-//  val score3 = controller.captureScore.unsafeRunSync()
-//  println("Score: " + score3)
-//
-//  Thread.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for next frame to load\
-//  templateMatchingClient.matchLocationIn(controller.captureScreen.unsafeRunSync()).unsafeRunSync()
-//  controller.takeShot(900).unsafeRunSync() //frame 4
-//  Thread.sleep(WaitTimeBetweenShotAndScreenshot)
-//  val score4 = controller.captureScore.unsafeRunSync()
-//  println("Score: " + score4)
-//
-//  Thread.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for next frame to load
-//  templateMatchingClient.matchLocationIn(controller.captureScreen.unsafeRunSync()).unsafeRunSync()
-//  controller.takeShot(900).unsafeRunSync() //frame 5
-//  Thread.sleep(WaitTimeBetweenShotAndScreenshot)
-//  val score5 = controller.captureScore.unsafeRunSync()
-//  println("Score: " + score5)
-//
-//  Thread.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for next frame to load
-//  templateMatchingClient.matchLocationIn(controller.captureScreen.unsafeRunSync()).unsafeRunSync()
-//  controller.takeShot(960).unsafeRunSync() //frame 6
-//  Thread.sleep(WaitTimeBetweenShotAndScreenshot)
-//  val score6 = controller.captureScore.unsafeRunSync()
-//  println("Score: " + score6)
-//
-//  Thread.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for next frame to load
-//  templateMatchingClient.matchLocationIn(controller.captureScreen.unsafeRunSync()).unsafeRunSync()
-//  controller.takeShot(700).unsafeRunSync() //frame 7
-//  Thread.sleep(WaitTimeBetweenShotAndScreenshot)
-//  val score7 = controller.captureScore.unsafeRunSync()
-//  println("Score: " + score7)
+  private def playFrames(gameRunner: GameRunner)(accumulatedScore: Score): IO[Unit] = {
+    for {
+      _       <- IO.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for game to load
+      outcome <- gameRunner.playFrame(accumulatedScore).value
+      _ <- outcome match {
+        case Right(newAccumulatedScore) => playFrames(gameRunner)(newAccumulatedScore)
+        case Left(GameEnded) =>
+          IO(logger.info("Game ended. Restarting")) >> restartGame >> playFrames(gameRunner)(Score.Zero)
+        case Left(other) => IO(logger.error(s"application terminated due to $other"))
+      }
+    } yield ()
+  }
 
-  driver.quit()
+  private def restartGame: IO[Unit] =
+    for {
+      _ <- IO.sleep(2000.milliseconds)
+      _ <- controller.click //advance to main screen
+      _ <- IO.sleep(WaitTimeToLoadApp) //wait to load main screen
+      _ <- controller.click //advance to game
+    } yield ()
+
+  app.unsafeRunSync()
 
 }

@@ -20,25 +20,13 @@ class ControllerTest extends FlatSpec with MockitoSugar {
 
   "Controller" should "capture screenshot" in {
     val mockRemoteWebDriver    = mock[RemoteWebDriver]
-    val controller: Controller = Controller(mockRemoteWebDriver, "frame", ocrClient, imageProcessingClient)
+    val controller: Controller = Controller(mockRemoteWebDriver, "frame")
 
     val returnedScreenshot = Files.readAllBytes(Paths.get(getClass.getResource("/test-full-screenshot-5.png").toURI))
     Mockito.when(mockRemoteWebDriver.getScreenshotAs(OutputType.BYTES)).thenReturn(returnedScreenshot)
 
     val capturedScreen = controller.captureScreen.unsafeRunSync()
     capturedScreen should ===(returnedScreenshot)
-
-  }
-
-  it should "capture score from screenshot" in {
-    val mockRemoteWebDriver    = mock[RemoteWebDriver]
-    val controller: Controller = Controller(mockRemoteWebDriver, "frame", ocrClient, imageProcessingClient)
-
-    val returnedScreenshot = Files.readAllBytes(Paths.get(getClass.getResource("/test-full-screenshot-5.png").toURI))
-    Mockito.when(mockRemoteWebDriver.getScreenshotAs(OutputType.BYTES)).thenReturn(returnedScreenshot)
-
-    val capturedScore = controller.captureScore.unsafeRunSync()
-    capturedScore should ===(Some(Score(5)))
 
   }
 

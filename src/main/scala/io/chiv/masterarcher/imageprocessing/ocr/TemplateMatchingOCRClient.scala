@@ -33,10 +33,11 @@ object TemplateMatchingOCRClient extends StrictLogging {
 
       numbersFromData.flatMap {
         case Nil =>
-          val errorUUID = UUID.randomUUID().toString
           for {
-            _ <- IO(logger.error(s"Unrecognised score in file. Writing image out to file with uuid $errorUUID"))
-            _ <- IO(Image(data).output(new File(s"/tmp/unrecognised-image-$errorUUID.png")))
+            errorUUID <- IO(UUID.randomUUID().toString)
+            file      <- IO(new File(s"/tmp/unrecognised-score-$errorUUID.png"))
+            _         <- IO(logger.error(s"Unrecognised score in file. Writing image out to file ${file.getPath}"))
+            _         <- IO(Image(data).output(file))
           } yield List.empty
         case scoreList => IO(List(scoreList.mkString))
       }
