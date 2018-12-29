@@ -5,9 +5,10 @@ import java.util.UUID
 
 import cats.data.EitherT
 import cats.effect.{IO, Timer}
+import cats.syntax.flatMap._
 import com.sksamuel.scrimage.{Image, Position}
 import com.typesafe.scalalogging.StrictLogging
-import io.chiv.masterarcher.imageprocessing.learning.LearningStore
+import io.chiv.masterarcher.imageprocessing.persistence.Store
 import io.chiv.masterarcher.imageprocessing.ocr.OCRClient
 import io.chiv.masterarcher.imageprocessing.templatematching.TemplateMatchingClient
 import io.chiv.masterarcher.imageprocessing.transformation.ImageTransformationClient
@@ -22,18 +23,18 @@ object GameRunner extends StrictLogging {
 
   val WaitTimeBetweenShotAndScreenshot: FiniteDuration = 4500.milliseconds
 
-  val MinHoldTime                 = HoldTime(200.milliseconds)
-  val MaxHoldTime                 = HoldTime(1200.milliseconds)
-  val HoldTimeIncremementInterval = 50.milliseconds
-  val DefaultHoldTime             = HoldTime(600.milliseconds)
+  val MinHoldTime               = HoldTime(400.milliseconds)
+  val MaxHoldTime               = HoldTime(1500.milliseconds)
+  val HoldTimeIncrementInterval = 50.milliseconds
+  val DefaultHoldTime           = HoldTime(600.milliseconds)
   val AllPossibleHoldTimes =
     (MinHoldTime.value.toMillis to MaxHoldTime.value.toMillis)
-      .filter(_ % HoldTimeIncremementInterval.toMillis == 0)
+      .filter(_ % HoldTimeIncrementInterval.toMillis == 0)
       .map(x => HoldTime(x.milliseconds))
 
   def apply(controller: Controller,
             templateMatchingClient: TemplateMatchingClient,
-            learningStore: LearningStore,
+            learningStore: Store,
             imageTransformationClient: ImageTransformationClient,
             ocrClient: OCRClient)(implicit timer: Timer[IO]) =
     new GameRunner {
@@ -50,14 +51,17 @@ object GameRunner extends StrictLogging {
           targetCoordinates <- EitherT(
             templateMatchingClient
               .matchLocationIn(targetTemplateMatchingFile, beforeScreenshot)
-              .flatMap(_.fold(handleUnrecognisedTarget(beforeScreenshot).map[Either[ExitState, Coordinates]](_ =>
-                Left(UnableToLocateTarget)))(c => IO.pure(Right(c)))))
-          _                       <- logInfo(s"target coordinates obtained $targetCoordinates")
-          bestHoldTimeAndScoreOpt <- EitherT.liftF(learningStore.getHoldTimesAndScores(targetCoordinates))
-          _                       <- logInfo(s"best hold time and score retrieved $bestHoldTimeAndScoreOpt")
+              .flatMap(_.fold(
+                writeOutScreenshot(beforeScreenshot, "unrecognised-target").map[Either[ExitState, Coordinates]](_ =>
+                  Left(UnableToLocateTarget)))(c => IO.pure(Right(c)))))
+          _                  <- logInfo(s"target coordinates obtained $targetCoordinates")
+          holdTimesAndScores <- EitherT.liftF(learningStore.getHoldTimesAndScores(targetCoordinates))
+          _                  <- logInfo(s"hold times and scores retrieved $holdTimesAndScores")
           holdTimeToUse <- EitherT(
-            calculateHoldTime(bestHoldTimeAndScoreOpt).map(
-              _.fold[Either[ExitState, HoldTime]](Left(NoScoringHoldTimesFound))(Right(_))))
+            calculateHoldTime(holdTimesAndScores).flatMap(
+              _.fold[IO[Either[ExitState, HoldTime]]](
+                writeOutScreenshot(beforeScreenshot, "no-scoring-hold-times") >> IO(Left(NoScoringHoldTimesFound)))(
+                holdTime => IO(Right(holdTime)))))
           _               <- logInfo(s"hold time to use calculated as $holdTimeToUse")
           _               <- EitherT.liftF(controller.takeShot(holdTimeToUse))
           _               <- EitherT.liftF(IO.sleep(WaitTimeBetweenShotAndScreenshot))
@@ -77,7 +81,12 @@ object GameRunner extends StrictLogging {
           _             <- logInfo(s"New score recognised: $newAccumulatedScore")
           scoreFromShot <- EitherT.liftF(IO(newAccumulatedScore - previousAccumulatedScore))
           _             <- logInfo(s"Score from shot: $scoreFromShot}")
-          _             <- EitherT.liftF(learningStore.persistResult(targetCoordinates, holdTimeToUse, scoreFromShot))
+          _ <- if (scoreFromShot.value < 0)
+            EitherT.liftF(
+              writeOutScreenshot(afterScreenshot, "score-zero") >> IO.raiseError(
+                new RuntimeException("Score less than zero. Written screenshot out to file")))
+          else EitherT.liftF(IO(()))
+          _ <- EitherT.liftF(learningStore.persistResult(targetCoordinates, holdTimeToUse, scoreFromShot))
 
         } yield newAccumulatedScore
       }
@@ -85,11 +94,11 @@ object GameRunner extends StrictLogging {
 
   private def logInfo(message: String): EitherT[IO, ExitState, Unit] = EitherT.liftF(IO(logger.info(message)))
 
-  private def handleUnrecognisedTarget(screenshot: Array[Byte]) =
+  private def writeOutScreenshot(screenshot: Array[Byte], filePrefix: String): IO[Unit] =
     for {
       errorUUID <- IO(UUID.randomUUID().toString)
-      file      <- IO(new File(s"/tmp/unrecognised-target-$errorUUID.png"))
-      _         <- IO(logger.error(s"Unable to locate target. Writing image out to file ${file.getPath}"))
+      file      <- IO(new File(s"/tmp/$filePrefix-$errorUUID.png"))
+      _         <- IO(logger.error(s"Error occured Writing image out to file ${file.getPath}"))
       _         <- IO(Image(screenshot).output(file))
     } yield ()
 
@@ -107,11 +116,11 @@ object GameRunner extends StrictLogging {
               .shuffle(AllPossibleHoldTimes.filterNot(holdTimesAndScores.keys.toList.contains))
               .headOption)
         case (holdTime, _) => {
-          (holdTimesAndScores.get(holdTime - HoldTimeIncremementInterval),
-           holdTimesAndScores.get(holdTime + HoldTimeIncremementInterval)) match {
-            case (None, None)       => IO(Some(holdTime + HoldTimeIncremementInterval))
-            case (Some(_), None)    => IO(Some(holdTime + HoldTimeIncremementInterval))
-            case (None, Some(_))    => IO(Some(holdTime - HoldTimeIncremementInterval))
+          (holdTimesAndScores.get(holdTime - HoldTimeIncrementInterval),
+           holdTimesAndScores.get(holdTime + HoldTimeIncrementInterval)) match {
+            case (None, None)       => IO(Some(holdTime + HoldTimeIncrementInterval))
+            case (Some(_), None)    => IO(Some(holdTime + HoldTimeIncrementInterval))
+            case (None, Some(_))    => IO(Some(holdTime - HoldTimeIncrementInterval))
             case (Some(_), Some(_)) => IO(Some(holdTime))
           }
         }

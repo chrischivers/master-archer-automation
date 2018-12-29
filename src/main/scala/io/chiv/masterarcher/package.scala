@@ -1,4 +1,5 @@
 package io.chiv
+
 import scala.concurrent.duration.FiniteDuration
 
 package object masterarcher {

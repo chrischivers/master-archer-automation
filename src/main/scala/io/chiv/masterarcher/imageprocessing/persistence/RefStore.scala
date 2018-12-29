@@ -1,10 +1,10 @@
-package io.chiv.masterarcher.imageprocessing.learning
+package io.chiv.masterarcher.imageprocessing.persistence
 import cats.effect.IO
 import cats.effect.concurrent.Ref
 import io.chiv.masterarcher.{Coordinates, HoldTime, Score}
 
-object RefLearningStore {
-  def apply(resultLog: Ref[IO, Map[Coordinates, Map[HoldTime, Score]]]) = new LearningStore {
+object RefStore {
+  def apply(resultLog: Ref[IO, Map[Coordinates, Map[HoldTime, Score]]]) = new Store {
 
     override def persistResult(targetCoordinates: Coordinates, holdTime: HoldTime, score: Score): IO[Unit] = {
       resultLog.update { old =>

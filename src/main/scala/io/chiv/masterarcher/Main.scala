@@ -2,11 +2,11 @@ package io.chiv.masterarcher
 import java.io.File
 
 import cats.effect.IO
-import cats.effect.concurrent.Ref
 import cats.syntax.flatMap._
 import com.typesafe.scalalogging.StrictLogging
-import io.chiv.masterarcher.imageprocessing.learning.RefLearningStore
+import doobie.util.transactor.Transactor
 import io.chiv.masterarcher.imageprocessing.ocr.TemplateMatchingOCRClient
+import io.chiv.masterarcher.imageprocessing.persistence.PostgresStore
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
 import io.chiv.masterarcher.imageprocessing.transformation.ScrimageClient
 import org.openqa.selenium.firefox.FirefoxDriver
@@ -16,7 +16,9 @@ import scala.concurrent.duration._
 
 object Main extends App with StrictLogging {
 
-  implicit val timer = IO.timer(ExecutionContext.global)
+  val ec                    = ExecutionContext.global
+  implicit val contextShift = cats.effect.IO.contextShift(ec)
+  implicit val timer        = IO.timer(ec)
 
   System.setProperty("webdriver.gecko.driver", "/Users/chrichiv/Downloads/geckodriver") //todo remove from code
 
@@ -35,11 +37,15 @@ object Main extends App with StrictLogging {
   val controller                = Controller(driver, "frame")
 
   val app = for {
-    learningStoreRef <- Ref.of[IO, Map[Coordinates, Map[HoldTime, Score]]](Map.empty)
-    learningStore = RefLearningStore(learningStoreRef)
+//    learningStoreRef <- Ref.of[IO, Map[Coordinates, Map[HoldTime, Score]]](Map.empty)
+//    learningStore = RefStore(learningStoreRef)
+    transactor <- IO(
+      Transactor
+        .fromDriverManager[IO]("org.postgresql.Driver", "jdbc:postgresql://localhost/master-archer", "postgres", ""))
+    postgresStore <- PostgresStore(transactor)
     gameRunner = GameRunner(controller,
                             templateMatchingClient,
-                            learningStore,
+                            postgresStore,
                             imageTransformationClient,
                             templateMatchingOCRClient)
     _ <- IO(driver.get("https://playcanv.as/p/JERg21J8/"))
@@ -69,7 +75,9 @@ object Main extends App with StrictLogging {
     for {
       _ <- IO.sleep(2000.milliseconds)
       _ <- controller.click //advance to main screen
+      _ <- controller.click //advance to main screen
       _ <- IO.sleep(WaitTimeToLoadApp) //wait to load main screen
+      _ <- controller.click //advance to game
       _ <- controller.click //advance to game
     } yield ()
 

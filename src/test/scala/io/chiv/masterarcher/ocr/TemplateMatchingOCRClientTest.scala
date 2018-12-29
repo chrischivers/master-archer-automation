@@ -1,8 +1,6 @@
 package io.chiv.masterarcher.ocr
-import java.io.File
 import java.nio.file.{Files, Paths}
 
-import io.chiv.masterarcher.Main
 import io.chiv.masterarcher.imageprocessing.ocr.TemplateMatchingOCRClient
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
 import org.scalactic.TripleEquals

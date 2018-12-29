@@ -1,16 +1,16 @@
-package io.chiv.masterarcher.learning
+package io.chiv.masterarcher.persistence
 import cats.effect.IO
 import cats.effect.concurrent.Ref
 import io.chiv.masterarcher.{Coordinates, HoldTime, Score}
-import io.chiv.masterarcher.imageprocessing.learning.RefLearningStore
+import io.chiv.masterarcher.imageprocessing.persistence.RefStore
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 import scala.concurrent.duration._
 
-class RefLearningStoreTest extends FlatSpec {
-  "Ref Leaning Store" should "persist and retrieve a single score" in {
+class RefStoreTest extends FlatSpec {
+  "Ref Store" should "persist and retrieve a single score" in {
     val ref           = Ref.of[IO, Map[Coordinates, Map[HoldTime, Score]]](Map.empty).unsafeRunSync()
-    val learningStore = RefLearningStore(ref)
+    val learningStore = RefStore(ref)
 
     val targetCoordinates = Coordinates(100, 200)
     val holdTime          = HoldTime(700.milliseconds)
@@ -22,7 +22,7 @@ class RefLearningStoreTest extends FlatSpec {
 
   it should "persist and retrieve multiple scores" in {
     val ref           = Ref.of[IO, Map[Coordinates, Map[HoldTime, Score]]](Map.empty).unsafeRunSync()
-    val learningStore = RefLearningStore(ref)
+    val learningStore = RefStore(ref)
 
     val targetCoordinates = Coordinates(100, 200)
     val holdTime1         = HoldTime(700.milliseconds)
@@ -37,7 +37,7 @@ class RefLearningStoreTest extends FlatSpec {
 
   it should "overwrite recorded score when more recent one is found" in {
     val ref           = Ref.of[IO, Map[Coordinates, Map[HoldTime, Score]]](Map.empty).unsafeRunSync()
-    val learningStore = RefLearningStore(ref)
+    val learningStore = RefStore(ref)
 
     val targetCoordinates = Coordinates(100, 200)
     val holdTime          = HoldTime(700.milliseconds)

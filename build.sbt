@@ -11,9 +11,20 @@ libraryDependencies ++= Seq(
   "com.sksamuel.scrimage" %% "scrimage-core" % "2.1.8",
   "com.typesafe.scala-logging" %% "scala-logging" % "3.5.0",
   "ch.qos.logback" % "logback-classic" % "1.2.3",
+  "org.tpolecat" %% "doobie-core"      % "0.6.0",
+  "org.tpolecat" %% "doobie-postgres"      % "0.6.0",
+  "org.tpolecat"  %% "doobie-h2"  % "0.6.0" % "test",
   "org.scalatest" %% "scalatest"     % "3.0.1" % "test",
   "org.mockito" % "mockito-scala_2.12" % "1.0.6" % "test"
 )
+
+val circeVersion = "0.11.0"
+
+libraryDependencies ++= Seq(
+  "io.circe" %% "circe-core",
+  "io.circe" %% "circe-generic",
+  "io.circe" %% "circe-parser"
+).map(_ % circeVersion)
 
 scalacOptions ++= Seq(
   "-deprecation",                      // Emit warning and location for usages of deprecated APIs.
