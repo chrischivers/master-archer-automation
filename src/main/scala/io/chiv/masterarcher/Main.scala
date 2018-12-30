@@ -6,9 +6,10 @@ import cats.syntax.flatMap._
 import com.typesafe.scalalogging.StrictLogging
 import doobie.util.transactor.Transactor
 import io.chiv.masterarcher.imageprocessing.ocr.TemplateMatchingOCRClient
-import io.chiv.masterarcher.imageprocessing.persistence.PostgresStore
+import io.chiv.masterarcher.persistence.PostgresStore
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
 import io.chiv.masterarcher.imageprocessing.transformation.ScrimageClient
+import io.chiv.masterarcher.learning.Learning
 import org.openqa.selenium.firefox.FirefoxDriver
 
 import scala.concurrent.ExecutionContext
@@ -27,7 +28,7 @@ object Main extends App with StrictLogging {
   val WaitTimeBetweenScreenshotAndNextShot = 1500.milliseconds
 
   val targetTemplateFile         = new File(getClass.getResource("/templates/target-template.png").getFile)
-  val MATCHING_THRESHOLD: Double = 0.85
+  val MATCHING_THRESHOLD: Double = 0.80
 
   val driver = new FirefoxDriver()
 
@@ -37,14 +38,14 @@ object Main extends App with StrictLogging {
   val controller                = Controller(driver, "frame")
 
   val app = for {
-//    learningStoreRef <- Ref.of[IO, Map[Coordinates, Map[HoldTime, Score]]](Map.empty)
-//    learningStore = RefStore(learningStoreRef)
     transactor <- IO(
       Transactor
         .fromDriverManager[IO]("org.postgresql.Driver", "jdbc:postgresql://localhost/master-archer", "postgres", ""))
     postgresStore <- PostgresStore(transactor)
+    learning = Learning(postgresStore)
     gameRunner = GameRunner(controller,
                             templateMatchingClient,
+                            learning,
                             postgresStore,
                             imageTransformationClient,
                             templateMatchingOCRClient)

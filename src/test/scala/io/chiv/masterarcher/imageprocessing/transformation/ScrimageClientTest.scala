@@ -1,10 +1,9 @@
-package io.chiv.masterarcher.transformation
+package io.chiv.masterarcher.imageprocessing.transformation
 import java.nio.file.{Files, Paths}
 
 import com.sksamuel.scrimage.{Image, Position}
 import io.chiv.masterarcher.imageprocessing.ocr.TemplateMatchingOCRClient
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
-import io.chiv.masterarcher.imageprocessing.transformation.{ImageTransformationClient, ScrimageClient}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 

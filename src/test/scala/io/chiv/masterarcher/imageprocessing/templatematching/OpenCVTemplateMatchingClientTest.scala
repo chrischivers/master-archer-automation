@@ -1,9 +1,8 @@
-package io.chiv.masterarcher.templatematching
+package io.chiv.masterarcher.imageprocessing.templatematching
 import java.io.File
 import java.nio.file.{Files, Paths}
 
 import io.chiv.masterarcher.Coordinates
-import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 
@@ -17,6 +16,6 @@ class OpenCVTemplateMatchingClientTest extends FlatSpec {
 
     val matchingResult =
       openCVTemplateMatchingClient.matchLocationIn(templateMatchingFile, testImageAsBytes).unsafeRunSync()
-    matchingResult should ===(Some(Coordinates(1492, 1125)))
+    matchingResult should ===(List(Coordinates(1492, 1125)))
   }
 }

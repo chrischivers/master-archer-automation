@@ -8,33 +8,27 @@ import cats.effect.{IO, Timer}
 import cats.syntax.flatMap._
 import com.sksamuel.scrimage.{Image, Position}
 import com.typesafe.scalalogging.StrictLogging
-import io.chiv.masterarcher.imageprocessing.persistence.Store
+import io.chiv.masterarcher.persistence.Store
 import io.chiv.masterarcher.imageprocessing.ocr.OCRClient
 import io.chiv.masterarcher.imageprocessing.templatematching.TemplateMatchingClient
 import io.chiv.masterarcher.imageprocessing.transformation.ImageTransformationClient
+import io.chiv.masterarcher.learning.Learning
 
 import scala.concurrent.duration._
-import scala.util.{Random, Try}
+import scala.util.Try
 
 trait GameRunner {
   def playFrame(previousAccumulatedScore: Score): EitherT[IO, ExitState, Score]
 }
 object GameRunner extends StrictLogging {
 
-  val WaitTimeBetweenShotAndScreenshot: FiniteDuration = 4500.milliseconds
-
-  val MinHoldTime               = HoldTime(400.milliseconds)
-  val MaxHoldTime               = HoldTime(1500.milliseconds)
-  val HoldTimeIncrementInterval = 50.milliseconds
-  val DefaultHoldTime           = HoldTime(600.milliseconds)
-  val AllPossibleHoldTimes =
-    (MinHoldTime.value.toMillis to MaxHoldTime.value.toMillis)
-      .filter(_ % HoldTimeIncrementInterval.toMillis == 0)
-      .map(x => HoldTime(x.milliseconds))
+  val StaticScreenThreshold = 500.milliseconds
+  val shooterCoordinates    = Coordinates(954, 1125)
 
   def apply(controller: Controller,
             templateMatchingClient: TemplateMatchingClient,
-            learningStore: Store,
+            learning: Learning,
+            store: Store,
             imageTransformationClient: ImageTransformationClient,
             ocrClient: OCRClient)(implicit timer: Timer[IO]) =
     new GameRunner {
@@ -42,8 +36,21 @@ object GameRunner extends StrictLogging {
       val targetTemplateMatchingFile    = new File(getClass.getResource("/templates/target-template.png").getFile)
       val gameEndedTemplateMatchingFile = new File(getClass.getResource("/templates/game-end-template.png").getFile)
 
-      def hasGameEnded(afterScreenshot: Array[Byte]): IO[Boolean] =
-        templateMatchingClient.matchLocationIn(gameEndedTemplateMatchingFile, afterScreenshot).map(_.isDefined)
+      private def hasGameEnded(afterScreenshot: Array[Byte]): IO[Boolean] =
+        templateMatchingClient.matchLocationIn(gameEndedTemplateMatchingFile, afterScreenshot).map(_.nonEmpty)
+
+      private def awaitStaticScreen: IO[Unit] = {
+        val result = for {
+          _              <- IO(logger.info("Awaiting static screen"))
+          screen1        <- controller.captureScreen
+          screen1Cropped <- imageTransformationClient.cropAreaFromImage(screen1, 25, 25, Position.Center)
+          _              <- IO.sleep(StaticScreenThreshold)
+          screen2        <- controller.captureScreen
+          screen2Cropped <- imageTransformationClient.cropAreaFromImage(screen2, 25, 25, Position.Center)
+        } yield screen1Cropped sameElements screen2Cropped
+
+        result.flatMap(static => if (static) IO(()) else awaitStaticScreen)
+      }
 
       override def playFrame(previousAccumulatedScore: Score): EitherT[IO, ExitState, Score] = {
         for {
@@ -51,24 +58,25 @@ object GameRunner extends StrictLogging {
           targetCoordinates <- EitherT(
             templateMatchingClient
               .matchLocationIn(targetTemplateMatchingFile, beforeScreenshot)
-              .flatMap(_.fold(
+              .flatMap(_.headOption.fold(
                 writeOutScreenshot(beforeScreenshot, "unrecognised-target").map[Either[ExitState, Coordinates]](_ =>
                   Left(UnableToLocateTarget)))(c => IO.pure(Right(c)))))
-          _                  <- logInfo(s"target coordinates obtained $targetCoordinates")
-          holdTimesAndScores <- EitherT.liftF(learningStore.getHoldTimesAndScores(targetCoordinates))
-          _                  <- logInfo(s"hold times and scores retrieved $holdTimesAndScores")
-          holdTimeToUse <- EitherT(
-            calculateHoldTime(holdTimesAndScores).flatMap(
-              _.fold[IO[Either[ExitState, HoldTime]]](
-                writeOutScreenshot(beforeScreenshot, "no-scoring-hold-times") >> IO(Left(NoScoringHoldTimesFound)))(
-                holdTime => IO(Right(holdTime)))))
-          _               <- logInfo(s"hold time to use calculated as $holdTimeToUse")
-          _               <- EitherT.liftF(controller.takeShot(holdTimeToUse))
-          _               <- EitherT.liftF(IO.sleep(WaitTimeBetweenShotAndScreenshot))
-          afterScreenshot <- EitherT.liftF(controller.captureScreen)
-          gameEnded       <- EitherT.liftF(hasGameEnded(afterScreenshot))
+          _     <- logInfo(s"target coordinates obtained $targetCoordinates")
+          angle <- EitherT.liftF(IO(angleFrom(targetCoordinates)))
+          _     <- logInfo(s"angle calculated $angle")
+          holdTime <- learning
+            .calculateHoldTime(angle)
+            .leftSemiflatMap(exitState =>
+              writeOutScreenshot(beforeScreenshot, "no-scoring-hold-times").map(_ => exitState))
+          _                           <- logInfo(s"hold time calculated as $holdTime")
+          adjustedHoldTimeForDistance <- EitherT.liftF(IO(adjustHoldTimeForDistance(holdTime, targetCoordinates)))
+          _                           <- logInfo(s"adjusted hold time to use calculated as $adjustedHoldTimeForDistance")
+          _                           <- EitherT.liftF(controller.takeShot(adjustedHoldTimeForDistance))
+          _                           <- EitherT.liftF(awaitStaticScreen)
+          afterScreenshot             <- EitherT.liftF(controller.captureScreen)
+          gameEnded                   <- EitherT.liftF(hasGameEnded(afterScreenshot))
           _ <- if (gameEnded) {
-            EitherT.left(learningStore.persistResult(targetCoordinates, holdTimeToUse, Score.Zero).map(_ => GameEnded))
+            EitherT.left(store.persistResult(angle, holdTime, Score.Zero).map(_ => GameEnded))
           } else EitherT.right[ExitState](IO.unit)
 
           croppedAfterScreenshot <- EitherT.liftF(
@@ -86,7 +94,7 @@ object GameRunner extends StrictLogging {
               writeOutScreenshot(afterScreenshot, "score-zero") >> IO.raiseError(
                 new RuntimeException("Score less than zero. Written screenshot out to file")))
           else EitherT.liftF(IO(()))
-          _ <- EitherT.liftF(learningStore.persistResult(targetCoordinates, holdTimeToUse, scoreFromShot))
+          _ <- EitherT.liftF(store.persistResult(angle, holdTime, scoreFromShot))
 
         } yield newAccumulatedScore
       }
@@ -103,28 +111,21 @@ object GameRunner extends StrictLogging {
     } yield ()
 
   private def safeToInt(str: String) = Try(str.toInt).toOption
-  private def calculateHoldTime(holdTimesAndScores: Map[HoldTime, Score]): IO[Option[HoldTime]] = {
 
-    if (holdTimesAndScores.isEmpty) IO(Some(DefaultHoldTime))
-    else {
-      val highestScore = holdTimesAndScores.maxBy(_._2.value)
-      logger.info(s"Highest score recorded is $highestScore")
-      highestScore match {
-        case (_, Score.Zero) =>
-          IO(
-            Random
-              .shuffle(AllPossibleHoldTimes.filterNot(holdTimesAndScores.keys.toList.contains))
-              .headOption)
-        case (holdTime, _) => {
-          (holdTimesAndScores.get(holdTime - HoldTimeIncrementInterval),
-           holdTimesAndScores.get(holdTime + HoldTimeIncrementInterval)) match {
-            case (None, None)       => IO(Some(holdTime + HoldTimeIncrementInterval))
-            case (Some(_), None)    => IO(Some(holdTime + HoldTimeIncrementInterval))
-            case (None, Some(_))    => IO(Some(holdTime - HoldTimeIncrementInterval))
-            case (Some(_), Some(_)) => IO(Some(holdTime))
-          }
-        }
-      }
-    }
+  private def adjustHoldTimeForDistance(holdTime: HoldTime, targetCoordinates: Coordinates): HoldTime = {
+    val factor      = 0.05
+    val millisToAdd = (targetCoordinates.x - shooterCoordinates.x) * factor
+    holdTime + millisToAdd.toInt.milliseconds
+  }
+
+  private def angleFrom(targetCoordinates: Coordinates): Angle = {
+
+    val difX = (targetCoordinates.x - shooterCoordinates.x).toDouble
+    val difY = (targetCoordinates.y - shooterCoordinates.y).toDouble
+    val degrees = Math
+      .toDegrees(Math.atan2(difX, difY))
+      .toInt - 90
+    assert(degrees >= 0) //TODO take out once working
+    Angle(degrees)
   }
 }

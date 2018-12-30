@@ -12,7 +12,7 @@ import org.bytedeco.javacpp.opencv_imgproc._
 object OpenCVTemplateMatchingClient extends StrictLogging {
   def apply(matchingThreshold: Double): TemplateMatchingClient = new TemplateMatchingClient {
 
-    override def matchLocationIn(templateMatchingFile: File, sourceImg: Array[Byte]): IO[Option[Coordinates]] = IO {
+    override def matchLocationIn(templateMatchingFile: File, sourceImg: Array[Byte]): IO[List[Coordinates]] = IO {
 
       logger.info(
         s"Attempting match on template file ${templateMatchingFile.getName} with matching threshold $matchingThreshold")
@@ -21,24 +21,34 @@ object OpenCVTemplateMatchingClient extends StrictLogging {
       val sourceImgMag  = new Mat(sourceImg: _*)
       val sourceImgGray = imdecode(sourceImgMag, CV_LOAD_IMAGE_GRAYSCALE)
 
-      val size   = new Size(sourceImgGray.cols - template.cols + 1, sourceImgGray.rows - template.rows + 1)
-      val result = new Mat(size, CV_32FC1)
-      matchTemplate(sourceImgGray, template, result, TM_CCOEFF_NORMED)
+      val size = new Size(sourceImgGray.cols - template.cols + 1, sourceImgGray.rows - template.rows + 1)
 
-      val minVal = DoubleBuffer.allocate(8)
-      val maxVal = DoubleBuffer.allocate(8)
-      val min    = new Point()
-      val max    = new Point()
-      minMaxLoc(result, minVal, maxVal, min, max, null)
+      def helper(previouslyFound: List[Coordinates]): List[Coordinates] = {
+        val result = new Mat(size, CV_32FC1)
+        matchTemplate(sourceImgGray, template, result, TM_CCOEFF_NORMED)
 
-      val matchingCoefficient = maxVal.get()
+        val minVal = DoubleBuffer.allocate(8)
+        val maxVal = DoubleBuffer.allocate(8)
+        val min    = new Point()
+        val max    = new Point()
+        minMaxLoc(result, minVal, maxVal, min, max, null)
 
-      if (matchingCoefficient >= matchingThreshold) {
-        logger.info(
-          s"Matching coefficient ($matchingCoefficient) is above threshold ($matchingThreshold). Returning (${max.x}, ${max.y})")
-        Some(Coordinates(max.x, max.y)) //corresponds to top left corner of matching rectangle
-      } else None
+        val matchingCoefficient = maxVal.get()
 
+        if (matchingCoefficient >= matchingThreshold) {
+          logger.info(
+            s"Matching coefficient ($matchingCoefficient) is above threshold ($matchingThreshold). Adding to return list (${max.x}, ${max.y})")
+          rectangle(sourceImgGray,
+                    max,
+                    new Point(max.x + template.cols, max.y + template.rows),
+                    new Scalar(0, 0, 0, 0),
+                    -1,
+                    8,
+                    0)
+          helper(previouslyFound :+ Coordinates(max.x, max.y)) //corresponds to top left corner of matching rectangle
+        } else previouslyFound
+      }
+      helper(List.empty)
     }
   }
 }

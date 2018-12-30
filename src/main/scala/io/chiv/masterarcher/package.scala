@@ -21,6 +21,8 @@ package object masterarcher {
     def -(duration: FiniteDuration) = HoldTime(value.minus(duration))
   }
 
+  case class Angle(value: Int)
+
   sealed trait ExitState
   case object GameEnded               extends ExitState
   case object UnableToLocateTarget    extends ExitState

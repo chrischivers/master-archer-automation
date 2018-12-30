@@ -14,7 +14,7 @@ object TemplateMatchingOCRClient extends StrictLogging {
 
   implicit val writer: PngWriter = PngWriter.NoCompression
 
-  val numberTemplates: List[(Int, File)] = (0 to 5).toList.map { i =>
+  val numberTemplates: List[(Int, File)] = (0 to 9).toList.map { i =>
     i -> new File(getClass.getResource(s"/templates/numbers/number-$i.png").getFile)
   }
 
@@ -26,7 +26,7 @@ object TemplateMatchingOCRClient extends StrictLogging {
             templateMatchingClient.matchLocationIn(file, data).map(number -> _)
         }
         .map {
-          _.collect { case (number, Some(coordinate)) => number -> coordinate }
+          _.flatMap { case (number, coordinateList) => coordinateList.map(number -> _) }
             .sortBy { case (_, coordinate) => coordinate.x }
             .map { case (number, _) => number }
         }
