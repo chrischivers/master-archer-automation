@@ -10,6 +10,7 @@ import io.chiv.masterarcher.persistence.PostgresStore
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
 import io.chiv.masterarcher.imageprocessing.transformation.ScrimageClient
 import io.chiv.masterarcher.learning.Learning
+import org.openqa.selenium.Dimension
 import org.openqa.selenium.firefox.FirefoxDriver
 
 import scala.concurrent.ExecutionContext
@@ -27,15 +28,15 @@ object Main extends App with StrictLogging {
   val WaitTimeToLoadInstructions           = 4000.milliseconds
   val WaitTimeBetweenScreenshotAndNextShot = 1500.milliseconds
 
-  val targetTemplateFile         = new File(getClass.getResource("/templates/target-template.png").getFile)
-  val MATCHING_THRESHOLD: Double = 0.80
+  val targetTemplateFile = new File(getClass.getResource("/templates/target-template.png").getFile)
 
   val driver = new FirefoxDriver()
+  driver.manage().window().setSize(new Dimension(700, 800))
 
   val imageTransformationClient = ScrimageClient()
-  val templateMatchingClient    = OpenCVTemplateMatchingClient(MATCHING_THRESHOLD)
+  val templateMatchingClient    = OpenCVTemplateMatchingClient()
   val templateMatchingOCRClient = TemplateMatchingOCRClient(templateMatchingClient)
-  val controller                = Controller(driver, "frame")
+  val controller                = Controller(driver)
 
   val app = for {
     transactor <- IO(
@@ -51,22 +52,25 @@ object Main extends App with StrictLogging {
                             templateMatchingOCRClient)
     _ <- IO(driver.get("https://playcanv.as/p/JERg21J8/"))
     _ <- IO.sleep(WaitTimeToLoadApp) //wait to load main screen
+    _ <- IO(driver.switchTo.frame("frame")) //switch context
     _ <- controller.click //advance to instruction screen
     _ <- IO.sleep(WaitTimeToLoadInstructions) //wait for instruction screen to load
     _ <- controller.click //advance to game
-    _ <- playFrames(gameRunner)(Score.Zero)
+    _ <- playFrames(gameRunner)(Score.Zero, shooterCoordinatesOpt = None)
     _ <- IO(driver.quit())
 
   } yield ()
 
-  private def playFrames(gameRunner: GameRunner)(accumulatedScore: Score): IO[Unit] = {
+  private def playFrames(gameRunner: GameRunner)(accumulatedScore: Score,
+                                                 shooterCoordinatesOpt: Option[Coordinates]): IO[Unit] = {
     for {
       _       <- IO.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for game to load
-      outcome <- gameRunner.playFrame(accumulatedScore).value
+      outcome <- gameRunner.playFrame(accumulatedScore, shooterCoordinatesOpt).value
       _ <- outcome match {
-        case Right(newAccumulatedScore) => playFrames(gameRunner)(newAccumulatedScore)
+        case Right((newAccumulatedScore, shooterCoordinates)) =>
+          playFrames(gameRunner)(newAccumulatedScore, Some(shooterCoordinates))
         case Left(GameEnded) =>
-          IO(logger.info("Game ended. Restarting")) >> restartGame >> playFrames(gameRunner)(Score.Zero)
+          IO(logger.info("Game ended. Restarting")) >> restartGame >> playFrames(gameRunner)(Score.Zero, None)
         case Left(other) => IO(logger.error(s"application terminated due to $other"))
       }
     } yield ()

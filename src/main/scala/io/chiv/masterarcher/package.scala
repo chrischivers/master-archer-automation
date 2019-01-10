@@ -26,6 +26,8 @@ package object masterarcher {
   sealed trait ExitState
   case object GameEnded               extends ExitState
   case object UnableToLocateTarget    extends ExitState
+  case object UnableToLocateShooter   extends ExitState
   case object UnableToLocateScore     extends ExitState
   case object NoScoringHoldTimesFound extends ExitState
+  case object TargetNotStatic         extends ExitState
 }

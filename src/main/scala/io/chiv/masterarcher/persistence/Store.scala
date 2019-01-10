@@ -3,7 +3,8 @@ import cats.effect.IO
 import io.chiv.masterarcher.{Angle, HoldTime, Score}
 
 trait Store {
-  def persistResult(angle: Angle, holdTime: HoldTime, score: Score): IO[Unit]
-  def getHoldTimesAndScores(angle: Angle): IO[Map[HoldTime, Score]]
-  def getAnglesWithNonZeroScores: IO[List[Angle]]
+  def persistResult(angle: Angle, static: Boolean, holdTime: HoldTime, score: Score): IO[Unit]
+  def getHoldTimesAndScores(angle: Angle, static: Boolean): IO[Map[HoldTime, List[Score]]]
+  def getAnglesWithNonZeroScores(static: Boolean): IO[List[Angle]]
+  def persistGameEndScore(score: Score): IO[Unit]
 }

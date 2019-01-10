@@ -9,18 +9,18 @@ import org.scalatest.FlatSpec
 import org.scalatest.mockito.MockitoSugar
 import org.mockito.Mockito
 import org.openqa.selenium.OutputType
+import org.scalactic.TypeCheckedTripleEquals
 import org.scalatest.Matchers._
 
-class ControllerTest extends FlatSpec with MockitoSugar {
+class ControllerTest extends FlatSpec with MockitoSugar with TypeCheckedTripleEquals {
 
-  val matchingThreshold                                = 0.85
-  val templateMatchingClient                           = OpenCVTemplateMatchingClient(matchingThreshold)
+  val templateMatchingClient                           = OpenCVTemplateMatchingClient()
   val ocrClient                                        = TemplateMatchingOCRClient(templateMatchingClient)
   val imageProcessingClient: ImageTransformationClient = ScrimageClient()
 
   "Controller" should "capture screenshot" in {
     val mockRemoteWebDriver    = mock[RemoteWebDriver]
-    val controller: Controller = Controller(mockRemoteWebDriver, "frame")
+    val controller: Controller = Controller(mockRemoteWebDriver)
 
     val returnedScreenshot = Files.readAllBytes(Paths.get(getClass.getResource("/test-full-screenshot-5.png").toURI))
     Mockito.when(mockRemoteWebDriver.getScreenshotAs(OutputType.BYTES)).thenReturn(returnedScreenshot)

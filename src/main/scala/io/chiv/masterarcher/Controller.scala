@@ -14,24 +14,22 @@ trait Controller {
 
 object Controller extends StrictLogging {
 
-  def apply(driver: RemoteWebDriver, targetName: String) =
+  def apply(driver: RemoteWebDriver) =
     new Controller {
 
-      val actions     = new Actions(driver)
-      lazy val target = driver.findElementById(targetName)
+      val actions = new Actions(driver)
 
       override def click: IO[Unit] =
-        IO(actions.clickAndHold(target).pause(10).release().perform())
+        IO(actions.clickAndHold().pause(10).release().perform())
 
       override def takeShot(holdTime: HoldTime): IO[Unit] =
         IO(
           actions
-            .clickAndHold(target)
+            .clickAndHold()
             .pause(holdTime.value.toMillis)
             .release()
             .perform())
 
       override def captureScreen: IO[Array[Byte]] = IO(driver.getScreenshotAs(OutputType.BYTES))
-
     }
 }

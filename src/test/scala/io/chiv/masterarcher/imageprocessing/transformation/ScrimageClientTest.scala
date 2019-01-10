@@ -4,10 +4,11 @@ import java.nio.file.{Files, Paths}
 import com.sksamuel.scrimage.{Image, Position}
 import io.chiv.masterarcher.imageprocessing.ocr.TemplateMatchingOCRClient
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
+import org.scalactic.TypeCheckedTripleEquals
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 
-class ScrimageClientTest extends FlatSpec {
+class ScrimageClientTest extends FlatSpec with TypeCheckedTripleEquals {
 
   "Scrimage client" should "crop score from image" in {
     val scrimageClient: ImageTransformationClient = ScrimageClient()
@@ -20,8 +21,7 @@ class ScrimageClientTest extends FlatSpec {
     dimensionsOfFullImage._1 shouldBe >(dimensionsOfCroppedImage._1)
     dimensionsOfFullImage._2 shouldBe >(dimensionsOfCroppedImage._2)
 
-    val matchingThreshold      = 0.85
-    val templateMatchingClient = OpenCVTemplateMatchingClient(matchingThreshold)
+    val templateMatchingClient = OpenCVTemplateMatchingClient()
     val ocrClient              = TemplateMatchingOCRClient(templateMatchingClient)
     val recognisedText         = ocrClient.stringsFromImage(croppedImageAsBytes).unsafeRunSync()
     recognisedText should ===(List("5"))

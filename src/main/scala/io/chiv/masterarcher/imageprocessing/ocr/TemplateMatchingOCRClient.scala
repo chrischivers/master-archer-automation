@@ -23,7 +23,7 @@ object TemplateMatchingOCRClient extends StrictLogging {
       val numbersFromData = numberTemplates
         .traverse {
           case (number, file) =>
-            templateMatchingClient.matchLocationIn(file, data).map(number -> _)
+            templateMatchingClient.matchLocationsIn(file, data).map(number -> _)
         }
         .map {
           _.flatMap { case (number, coordinateList) => coordinateList.map(number -> _) }

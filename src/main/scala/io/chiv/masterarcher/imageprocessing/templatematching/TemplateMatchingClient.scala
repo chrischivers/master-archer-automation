@@ -5,5 +5,10 @@ import cats.effect.IO
 import io.chiv.masterarcher.Coordinates
 
 trait TemplateMatchingClient {
-  def matchLocationIn(templateMatchingFile: File, sourceImg: Array[Byte]): IO[List[Coordinates]]
+  def matchLocationsIn(templateMatchingFile: File,
+                       sourceImg: Array[Byte],
+                       matchingThreshold: Double = 0.85): IO[List[Coordinates]]
+  def matchFirstLocationIn(templateMatchingFile: File,
+                           sourceImg: Array[Byte],
+                           matchingThreshold: Double = 0.85): IO[Option[Coordinates]]
 }

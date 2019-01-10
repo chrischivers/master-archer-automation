@@ -1,6 +1,7 @@
 package io.chiv.masterarcher.persistence
 import cats.effect.IO
 import doobie.implicits._
+import cats.syntax.functor._
 import doobie.util.Meta
 import doobie.util.transactor.Transactor
 import io.chiv.masterarcher
@@ -18,66 +19,81 @@ object PostgresStore {
 
   def apply(db: Transactor[IO]): IO[Store] = {
 
-    val createTable =
+    val createLogTable =
       sql"""CREATE TABLE IF NOT EXISTS log (
            |id SERIAL PRIMARY KEY,
            |angle SMALLINT NOT NULL,
+           |static BOOLEAN NOT NULL,
            |hold_time SMALLINT NOT NULL,
-           |score SMALLINT NOT NULL,
-           |CONSTRAINT unique_cons UNIQUE(angle, hold_time)
+           |score SMALLINT NOT NULL
            |)""".stripMargin
 
-    val createIndex =
-      sql"""CREATE INDEX IF NOT EXISTS log_lookup_ix ON log (angle, hold_time)"""
+    val createGameEndScoresTable =
+      sql"""CREATE TABLE IF NOT EXISTS game_end_scores (
+           |timestamp BIGINT NOT NULL,
+           |score SMALLINT NOT NULL
+           |)""".stripMargin
 
-    createTable.update.run
+    val createIndex1 =
+      sql"""CREATE INDEX IF NOT EXISTS log_lookup_angle_static_ix ON log (angle, static)"""
+
+    val createIndex2 =
+      sql"""CREATE INDEX IF NOT EXISTS log_lookup_score_ix ON log (score)"""
+
+    val createIndex3 =
+      sql"""CREATE INDEX IF NOT EXISTS log_lookup_static_ix ON log (static)"""
+
+    createLogTable.update.run
       .transact(db)
-      .flatMap(_ => createIndex.update.run.transact(db))
+      .flatMap(_ => createGameEndScoresTable.update.run.transact(db))
+      .flatMap(_ => createIndex1.update.run.transact(db))
+      .flatMap(_ => createIndex2.update.run.transact(db))
       .map { _ =>
         new Store {
 
           override def persistResult(angle: Angle,
+                                     static: Boolean,
                                      holdTime: masterarcher.HoldTime,
                                      score: masterarcher.Score): IO[Unit] = {
 
-            val existing =
-              sql"""SELECT angle, hold_time, score
-                 |FROM log
-                 |WHERE angle = ${angle} 
-                 |AND hold_time = ${holdTime}""".stripMargin
+            val insert = sql"""INSERT INTO log (angle, static, hold_time, score)
+               |VALUES ($angle, $static, $holdTime, $score)""".stripMargin
 
-            val update =
-              sql"""UPDATE log
-                 |SET score = ${score}
-                 |WHERE angle = ${angle}
-                 |AND hold_time = ${holdTime}""".stripMargin
-
-            val insert = sql"""INSERT INTO log (angle, hold_time, score)
-               |VALUES ($angle, $holdTime, $score)""".stripMargin
-
-            for {
-              existingRecord <- existing.query[LogRecord].option.transact(db)
-              _              <- existingRecord.fold(insert.update.run.transact(db))(_ => update.update.run.transact(db))
-            } yield ()
+            insert.update.run.transact(db).void
 
           }
 
-          override def getHoldTimesAndScores(angle: Angle): IO[Map[masterarcher.HoldTime, masterarcher.Score]] = {
+          override def getHoldTimesAndScores(
+              angle: Angle,
+              static: Boolean): IO[Map[masterarcher.HoldTime, List[masterarcher.Score]]] = {
             val select =
               sql"""SELECT angle, hold_time, score
                  |FROM log
-                 |WHERE angle = ${angle}""".stripMargin
+                 |WHERE angle = ${angle}
+                 |AND static = ${static}""".stripMargin
 
-            select.query[LogRecord].to[List].transact(db).map(_.map(record => (record.holdTime, record.score)).toMap)
+            select
+              .query[LogRecord]
+              .to[List]
+              .transact(db)
+              .map(_.groupBy(_.holdTime).map { case (holdTime, records) => holdTime -> records.map(_.score) })
           }
-          override def getAnglesWithNonZeroScores: IO[List[Angle]] = {
+          override def getAnglesWithNonZeroScores(static: Boolean): IO[List[Angle]] = {
             val select =
               sql"""SELECT DISTINCT angle
                    |FROM log
                    |WHERE score > 0
+                   |AND static = ${static}
                    |""".stripMargin
 
             select.query[Angle].to[List].transact(db)
+          }
+
+          override def persistGameEndScore(score: Score): IO[Unit] = {
+            val now    = System.currentTimeMillis()
+            val insert = sql"""INSERT INTO game_end_scores (timestamp, score)
+                              |VALUES ($now, $score)""".stripMargin
+            insert.update.run.transact(db).void
           }
         }
       }

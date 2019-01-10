@@ -5,13 +5,14 @@ import java.util.UUID
 import cats.effect.{IO, Resource}
 import doobie.h2.H2Transactor
 import io.chiv.masterarcher.{Angle, HoldTime, Score}
+import org.scalactic.TypeCheckedTripleEquals
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
-class PostgresStoreTest extends FlatSpec {
+class PostgresStoreTest extends FlatSpec with TypeCheckedTripleEquals {
 
   val ec                    = ExecutionContext.global
   implicit val contextShift = cats.effect.IO.contextShift(ec)
@@ -26,74 +27,88 @@ class PostgresStoreTest extends FlatSpec {
         transactEC = ec
       )
 
-  "Postgres Store" should "persist and retrieve a single score" in {
+  "Postgres Store" should "persist and retrieve a single score for a singl hold time" in {
 
     h2Transactor
       .use { h2 =>
         PostgresStore(h2).map { postgresStore =>
           val angle    = Angle(20)
+          val static   = true
           val holdTime = HoldTime(700.milliseconds)
           val score    = Score(30)
-          postgresStore.persistResult(angle, holdTime, score).unsafeRunSync()
-          val result = postgresStore.getHoldTimesAndScores(angle).unsafeRunSync()
-          result should ===(Map(holdTime -> score))
+          postgresStore.persistResult(angle, static, holdTime, score).unsafeRunSync()
+          val result = postgresStore.getHoldTimesAndScores(angle, static).unsafeRunSync()
+          result should ===(Map(holdTime -> List(score)))
         }
       }
       .unsafeRunSync()
   }
 
-  it should "persist and retrieve multiple scores" in {
+  it should "persist and retrieve multiple scores for different hold times" in {
     h2Transactor
       .use { h2 =>
         PostgresStore(h2).map { postgresStore =>
           val angle     = Angle(45)
+          val static    = true
           val holdTime1 = HoldTime(700.milliseconds)
           val score1    = Score(30)
           val holdTime2 = HoldTime(500.milliseconds)
           val score2    = Score(15)
-          postgresStore.persistResult(angle, holdTime1, score1).unsafeRunSync()
-          postgresStore.persistResult(angle, holdTime2, score2).unsafeRunSync()
-          val result = postgresStore.getHoldTimesAndScores(angle).unsafeRunSync()
-          result should ===(Map(holdTime1 -> score1, holdTime2 -> score2))
+          postgresStore.persistResult(angle, static, holdTime1, score1).unsafeRunSync()
+          postgresStore.persistResult(angle, static, holdTime2, score2).unsafeRunSync()
+          val result = postgresStore.getHoldTimesAndScores(angle, static).unsafeRunSync()
+          result should ===(Map(holdTime1 -> List(score1), holdTime2 -> List(score2)))
         }
       }
       .unsafeRunSync()
   }
 
-  it should "overwrite recorded score when more recent one is found" in {
+  it should "persist and retrieve multiple scores for the same hold times" in {
     h2Transactor
       .use { h2 =>
         PostgresStore(h2).map { postgresStore =>
           val angle    = Angle(60)
+          val static   = true
           val holdTime = HoldTime(700.milliseconds)
           val score1   = Score(30)
-          val score2   = Score(15)
-          postgresStore.persistResult(angle, holdTime, score1).unsafeRunSync()
-          postgresStore.persistResult(angle, holdTime, score2).unsafeRunSync()
-          val result = postgresStore.getHoldTimesAndScores(angle).unsafeRunSync()
-          result should ===(Map(holdTime -> score2))
+          val score2   = Score(40)
+          postgresStore.persistResult(angle, static, holdTime, score1).unsafeRunSync()
+          postgresStore.persistResult(angle, static, holdTime, score2).unsafeRunSync()
+          val result = postgresStore.getHoldTimesAndScores(angle, static).unsafeRunSync()
+          result should ===(Map(holdTime -> List(score1, score2)))
         }
       }
       .unsafeRunSync()
   }
 
-  it should "obtain unique angles that have non-zero score data" in {
+  it should "obtain unique angles that have non-zero score data (for same static value" in {
     h2Transactor
       .use { h2 =>
         PostgresStore(h2).map { postgresStore =>
           val angle1    = Angle(45)
+          val static1   = true
           val holdTime1 = HoldTime(700.milliseconds)
           val score1    = Score(30)
+
           val angle2    = Angle(20)
+          val static2   = true
           val holdTime2 = HoldTime(500.milliseconds)
           val score2    = Score(15)
-          val angle3    = Angle(50)
-          val holdTime3 = HoldTime(600.milliseconds)
-          val score3    = Score(0)
-          postgresStore.persistResult(angle1, holdTime1, score1).unsafeRunSync()
-          postgresStore.persistResult(angle2, holdTime2, score2).unsafeRunSync()
-          postgresStore.persistResult(angle3, holdTime3, score3).unsafeRunSync()
-          val result = postgresStore.getAnglesWithNonZeroScores.unsafeRunSync()
+
+          val angle3    = Angle(25)
+          val static3   = false
+          val holdTime3 = HoldTime(500.milliseconds)
+          val score3    = Score(15)
+
+          val angle4    = Angle(50)
+          val static4   = true
+          val holdTime4 = HoldTime(600.milliseconds)
+          val score4    = Score(0)
+          postgresStore.persistResult(angle1, static1, holdTime1, score1).unsafeRunSync()
+          postgresStore.persistResult(angle2, static2, holdTime2, score2).unsafeRunSync()
+          postgresStore.persistResult(angle3, static3, holdTime3, score3).unsafeRunSync()
+          postgresStore.persistResult(angle4, static4, holdTime4, score4).unsafeRunSync()
+          val result = postgresStore.getAnglesWithNonZeroScores(static = true).unsafeRunSync()
           result should contain theSameElementsAs List(angle1, angle2)
         }
       }
