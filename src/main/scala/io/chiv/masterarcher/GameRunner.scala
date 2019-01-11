@@ -16,7 +16,7 @@ import io.chiv.masterarcher.imageprocessing.transformation.ImageTransformationCl
 import io.chiv.masterarcher.learning.Learning
 
 import scala.concurrent.duration._
-import scala.util.Try
+import scala.util.{Random, Try}
 
 trait GameRunner {
   type ScoreAndShooterCoordinates = (Score, Coordinates)
@@ -55,28 +55,26 @@ object GameRunner extends StrictLogging {
           _                                <- logInfo(s"Shooter coordinates: $shooterCoordinatesToUse")
           targetCoordinatesAndTriggerTimes <- getTargetCoordinates(isStatic, beforeScreenshot)
           (targetCoordinates, triggerTimes) = targetCoordinatesAndTriggerTimes
+          xCoordGroup                       = XCoordGroup.from(targetCoordinates.x)
           _     <- logInfo(s"Target coordinates obtained $targetCoordinates")
           angle <- EitherT.liftF(IO(angleFrom(targetCoordinates, shooterCoordinatesToUse)))
           _     <- logInfo(s"Angle calculated as $angle")
           holdTime <- learning
-            .calculateHoldTime(angle, isStatic)
+            .calculateHoldTime(angle, xCoordGroup, isStatic)
             .leftSemiflatMap(exitState =>
               writeOutScreenshot(beforeScreenshot, "no-scoring-hold-times").map(_ => exitState))
           _ <- logInfo(s"Hold time calculated as ${holdTime.value}")
-          adjustedHoldTimeForDroop <- EitherT.liftF(
-            IO(adjustHoldTimeForArrowDroop(holdTime, targetCoordinates, shooterCoordinatesToUse)))
-          _ <- logInfo(
-            s"Adjusted hold time to use calculated as ${adjustedHoldTimeForDroop.value} (Added ${adjustedHoldTimeForDroop.value
-              .minus(holdTime.value)} milliseconds")
+//          adjustedHoldTimeForDroop <- EitherT.liftF(
+//            IO(adjustHoldTimeForArrowDroop(holdTime, targetCoordinates, shooterCoordinatesToUse)))
+//          _ <- logInfo(
+//            s"Adjusted hold time to use calculated as ${adjustedHoldTimeForDroop.value} (Added ${adjustedHoldTimeForDroop.value
+//              .minus(holdTime.value)} milliseconds")
           _ <- logInfo("Taking shot...")
           _ <- EitherT.liftF {
-            if (isStatic) controller.takeShot(adjustedHoldTimeForDroop)
+            if (isStatic) controller.takeShot(holdTime)
             else
-              calculateWaitTimeForMovingTarget(triggerTimes.get,
-                                               targetCoordinates,
-                                               shooterCoordinatesToUse,
-                                               adjustedHoldTimeForDroop)
-                .flatMap(x => IO.sleep(x.get)) >> controller.takeShot(adjustedHoldTimeForDroop) //todo make safe
+              calculateWaitTimeForMovingTarget(triggerTimes.get, targetCoordinates, shooterCoordinatesToUse, holdTime)
+                .flatMap(x => IO.sleep(x.get)) >> controller.takeShot(holdTime) //todo make safe
           }
           _               <- EitherT.liftF(IO.sleep(1500.milliseconds)) //wait after taking shot
           _               <- EitherT.liftF(awaitStaticScreen)
@@ -84,7 +82,7 @@ object GameRunner extends StrictLogging {
           gameEnded       <- EitherT.liftF(hasGameEnded(afterScreenshot))
           _ <- if (gameEnded)
             EitherT.left(
-              store.persistResult(angle, isStatic, holdTime, Score.Zero) >>
+              store.persistResult(angle, xCoordGroup, isStatic, holdTime, Score.Zero) >>
                 IO(logger.info(s"Game ended with score ${previousAccumulatedScore.value}")) >>
                 store
                   .persistGameEndScore(previousAccumulatedScore)
@@ -105,7 +103,7 @@ object GameRunner extends StrictLogging {
               writeOutScreenshot(afterScreenshot, "score-zero") >> IO.raiseError(
                 new RuntimeException("Score less than zero. Written screenshot out to file")))
           else EitherT.liftF(IO.unit)
-          _ <- EitherT.liftF(store.persistResult(angle, isStatic, holdTime, scoreFromShot))
+          _ <- EitherT.liftF(store.persistResult(angle, xCoordGroup, isStatic, holdTime, scoreFromShot))
 
         } yield (newAccumulatedScore, shooterCoordinatesToUse)
       }
@@ -124,7 +122,7 @@ object GameRunner extends StrictLogging {
                     Left(UnableToLocateTarget)))(c => IO.pure(Right(c)))))
           } yield (targetCoordinates, None)
         } else {
-          EitherT.liftF[IO, ExitState, (Coordinates, Option[List[Long]])](handleMovingTarget().map {
+          EitherT.liftF[IO, ExitState, (Coordinates, Option[List[Long]])](handleMovingTarget(40).map {
             case (coordinates, futureTimes) => (coordinates, Some(futureTimes))
           })
         }
@@ -139,11 +137,11 @@ object GameRunner extends StrictLogging {
                                                    highTargetPosition: Coordinates,
                                                    shooterCoordinates: Coordinates,
                                                    adjustedHoldTime: HoldTime): IO[Option[FiniteDuration]] = {
-        val arrowTravelTimeCoefficient = 0.7
-        val arrowTravelTime            = (highTargetPosition.x - shooterCoordinates.x) * arrowTravelTimeCoefficient
+//        val arrowTravelTimeCoefficient = 0.7
+//        val arrowTravelTime            = hypotenuseFrom(highTargetPosition, shooterCoordinates) * arrowTravelTimeCoefficient
         for {
           now      <- timer.clock.realTime(MILLISECONDS)
-          waitTime <- IO(futureHighTargetTimes.map(_ - now - adjustedHoldTime.value.toMillis - arrowTravelTime))
+          waitTime <- IO(futureHighTargetTimes.map(_ - now - adjustedHoldTime.value.toMillis))
         } yield waitTime.find(_ > 200).map(_.milliseconds)
       }
 
@@ -198,7 +196,7 @@ object GameRunner extends StrictLogging {
             IO.raiseError(new RuntimeException("Unable to locate target while waiting for static screen")))(IO.pure))
       }
 
-      private def handleMovingTarget(sampleSize: Int = 30): IO[(Coordinates, List[Long])] = {
+      private def handleMovingTarget(sampleSize: Int): IO[(Coordinates, List[Long])] = {
 
         import cats.instances.list._
         import cats.syntax.traverse._
@@ -243,6 +241,14 @@ object GameRunner extends StrictLogging {
             minDistance: Int): List[(Timestamp, Coordinates, DistanceFromStart, DistanceToNext)] =
           in.filter { case (_, _, _, distToNext) => distToNext > minDistance }
 
+        def filterOutLargeDistancesBetweenPoints(in: List[(Timestamp, Coordinates, DistanceFromStart, DistanceToNext)])
+          : List[(Timestamp, Coordinates, DistanceFromStart, DistanceToNext)] = {
+          val medianDistToNext = in.map { case (_, _, _, distToNext) => distToNext }.sorted.drop(in.size / 2).head
+          in.filter {
+            case (_, _, _, distToNext) => distToNext < (medianDistToNext * 1.5)
+          }
+        }
+
         def distanceBetweenPointsWithinTolerance(distanceBetweenPoints: List[DistanceToNext],
                                                  maxDistanceBetweenPoints: Long,
                                                  minSampleSize: Int): Boolean =
@@ -250,6 +256,7 @@ object GameRunner extends StrictLogging {
             Math.abs(distanceBetweenPoints.min - distanceBetweenPoints.max) <= maxDistanceBetweenPoints
 
         def awaitTargetAtHighestPoint(highestPoint: Coordinates, tolerance: Int): IO[Timestamp] = {
+
           val result = for {
             start      <- timer.clock.realTime(MILLISECONDS)
             screenshot <- controller.captureScreen
@@ -258,7 +265,7 @@ object GameRunner extends StrictLogging {
           result.flatMap {
             case (coords, start) =>
               if (coords.exists(c => Math.abs(c.y - highestPoint.y) <= tolerance)) IO.pure(start)
-              else awaitTargetAtHighestPoint(highestPoint, tolerance)
+              else randomSleep >> awaitTargetAtHighestPoint(highestPoint, tolerance)
           }
         }
 
@@ -298,21 +305,24 @@ object GameRunner extends StrictLogging {
           withDistancesFromStart              = addDistanceFromStart(highestPoints, startTime)
           withDistancesBetweenPointsFirstPass = addDistanceBetweenPoints(withDistancesFromStart)
           _ <- logInfo(s"Distance between points on first pass: $withDistancesBetweenPointsFirstPass")
-          withDistancesBetweenPointsFiltered = filterOutSmallDistancesBetweenPoints(withDistancesBetweenPointsFirstPass,
-                                                                                    minDistance = 600)
-          withSmallDistancesBetweenPointsRemoved = withDistancesBetweenPointsFiltered.map {
+          withSmallDistancesBetweenPointsRemoved = filterOutSmallDistancesBetweenPoints(
+            withDistancesBetweenPointsFirstPass,
+            minDistance = 600)
+          withLargeDistancesBetweenPointsRemoved = filterOutLargeDistancesBetweenPoints(
+            withSmallDistancesBetweenPointsRemoved)
+          withDistanceBetweenPointsRemoved = withLargeDistancesBetweenPointsRemoved.map {
             case (timestamp, coords, distFromStart, _) => (timestamp, coords, distFromStart)
           }
           _ <- EitherT(
-            if (withDistancesBetweenPointsFiltered.size < 2) IO(Left(InsufficientValidPoints)) else IO(Right(())))
-          withDistancesBetweenPointsSecondPass = addDistanceBetweenPoints(withSmallDistancesBetweenPointsRemoved)
+            if (withDistanceBetweenPointsRemoved.size < 2) IO(Left(InsufficientValidPoints)) else IO(Right(())))
+          withDistancesBetweenPointsSecondPass = addDistanceBetweenPoints(withDistanceBetweenPointsRemoved)
           _ <- logInfo(s"Distance between points on second pass: $withDistancesBetweenPointsSecondPass")
           distancesBetweenPoints = withDistancesBetweenPointsSecondPass.map {
             case (_, _, _, distToNext) => distToNext
           }
           distanceBetweenPointsValid <- EitherT(
             if (distanceBetweenPointsWithinTolerance(distancesBetweenPoints,
-                                                     maxDistanceBetweenPoints = 500,
+                                                     maxDistanceBetweenPoints = 600,
                                                      minSampleSize = 2)) IO(Right(()))
             else IO(Left(DistanceBetweenPointsNotWithinThreshold)))
           _ <- logInfo(s"Distances between points are  within threshold? $distanceBetweenPointsValid")
@@ -345,17 +355,24 @@ object GameRunner extends StrictLogging {
 
       private def safeToInt(str: String) = Try(str.toInt).toOption
 
-      private def adjustHoldTimeForArrowDroop(holdTime: HoldTime,
-                                              targetCoordinates: Coordinates,
-                                              shooterCoordinates: Coordinates): HoldTime = {
-        val factor = 0.4
-        val xDist  = (targetCoordinates.x - shooterCoordinates.x).toDouble
-        val yDist =
-          (if (shooterCoordinates.y - targetCoordinates.y <= 0) 1 else shooterCoordinates.y - targetCoordinates.y).toDouble
-        val hypotenuseLength = Math.sqrt(xDist * xDist + yDist * yDist)
-        val millisToAdd      = (hypotenuseLength * factor).toInt
-        holdTime + millisToAdd.toInt.milliseconds
-      }
+//      private def adjustHoldTimeForArrowDroop(holdTime: HoldTime,
+//                                              targetCoordinates: Coordinates,
+//                                              shooterCoordinates: Coordinates): HoldTime = {
+//        val factor      = 0.35
+//        val hypotenuse  = hypotenuseFrom(targetCoordinates, shooterCoordinates)
+//        val millisToAdd = (hypotenuse * factor).toInt
+//        holdTime + millisToAdd.toInt.milliseconds
+//      }
+
+//      private def hypotenuseFrom(target: Coordinates, shooter: Coordinates) = {
+//        val xDist = (target.x - shooter.x).toDouble
+//        val yDist =
+//          (if (shooter.y - target.y <= 0) 1 else shooter.y - target.y).toDouble
+//        Math.sqrt(xDist * xDist + yDist * yDist)
+//      }
+
+      private def randomSleep =
+        IO.sleep(Random.shuffle((1 to 100).toList).head.milliseconds) //should prevent non termination if cycles in sync
 
       private def angleFrom(targetCoordinates: Coordinates, shooterCoordinates: Coordinates): Angle = {
 

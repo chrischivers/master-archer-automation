@@ -5,15 +5,16 @@ import cats.syntax.functor._
 import doobie.util.Meta
 import doobie.util.transactor.Transactor
 import io.chiv.masterarcher
-import io.chiv.masterarcher.{Angle, HoldTime, Score}
+import io.chiv.masterarcher.{Angle, HoldTime, Score, XCoordGroup}
 
 import scala.concurrent.duration._
 
 object PostgresStore {
 
-  implicit val holdTimeMeta: Meta[HoldTime] = Meta[Int].timap(i => HoldTime(i.milliseconds))(_.value.toMillis.toInt)
-  implicit val scoreMeta: Meta[Score]       = Meta[Int].timap(Score(_))(_.value)
-  implicit val angleMeta: Meta[Angle]       = Meta[Int].timap(Angle)(_.value)
+  implicit val holdTimeMeta: Meta[HoldTime]       = Meta[Int].timap(i => HoldTime(i.milliseconds))(_.value.toMillis.toInt)
+  implicit val scoreMeta: Meta[Score]             = Meta[Int].timap(Score(_))(_.value)
+  implicit val angleMeta: Meta[Angle]             = Meta[Int].timap(Angle)(_.value)
+  implicit val xCoordGroupMeta: Meta[XCoordGroup] = Meta[Int].timap(XCoordGroup(_))(_.value)
 
   case class LogRecord(angle: Angle, holdTime: HoldTime, score: Score)
 
@@ -23,6 +24,7 @@ object PostgresStore {
       sql"""CREATE TABLE IF NOT EXISTS log (
            |id SERIAL PRIMARY KEY,
            |angle SMALLINT NOT NULL,
+           |x_coord_group SMALLINT NOT NULL,
            |static BOOLEAN NOT NULL,
            |hold_time SMALLINT NOT NULL,
            |score SMALLINT NOT NULL
@@ -35,7 +37,7 @@ object PostgresStore {
            |)""".stripMargin
 
     val createIndex1 =
-      sql"""CREATE INDEX IF NOT EXISTS log_lookup_angle_static_ix ON log (angle, static)"""
+      sql"""CREATE INDEX IF NOT EXISTS log_lookup_angle_static_ix ON log (angle, x_coord_group, static)"""
 
     val createIndex2 =
       sql"""CREATE INDEX IF NOT EXISTS log_lookup_score_ix ON log (score)"""
@@ -52,24 +54,25 @@ object PostgresStore {
         new Store {
 
           override def persistResult(angle: Angle,
+                                     xCoordGroup: XCoordGroup,
                                      static: Boolean,
                                      holdTime: masterarcher.HoldTime,
                                      score: masterarcher.Score): IO[Unit] = {
 
-            val insert = sql"""INSERT INTO log (angle, static, hold_time, score)
-               |VALUES ($angle, $static, $holdTime, $score)""".stripMargin
+            val insert = sql"""INSERT INTO log (angle, x_coord_group, static, hold_time, score)
+               |VALUES ($angle, $xCoordGroup, $static, $holdTime, $score)""".stripMargin
 
             insert.update.run.transact(db).void
 
           }
 
-          override def getHoldTimesAndScores(
-              angle: Angle,
-              static: Boolean): IO[Map[masterarcher.HoldTime, List[masterarcher.Score]]] = {
+          override def getHoldTimesAndScores(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean)
+            : IO[Map[masterarcher.HoldTime, List[masterarcher.Score]]] = {
             val select =
               sql"""SELECT angle, hold_time, score
                  |FROM log
                  |WHERE angle = ${angle}
+                 |AND x_coord_group = ${xCoordGroup}
                  |AND static = ${static}""".stripMargin
 
             select
@@ -78,12 +81,14 @@ object PostgresStore {
               .transact(db)
               .map(_.groupBy(_.holdTime).map { case (holdTime, records) => holdTime -> records.map(_.score) })
           }
-          override def getAnglesWithNonZeroScores(static: Boolean): IO[List[Angle]] = {
+          override def getAnglesWithNonZeroScores(xCoordGroup: XCoordGroup, static: Boolean): IO[List[Angle]] = {
+            //TODO does this need to include xCoord
             val select =
               sql"""SELECT DISTINCT angle
                    |FROM log
                    |WHERE score > 0
                    |AND static = ${static}
+                   |AND x_coord_group = ${xCoordGroup}
                    |""".stripMargin
 
             select.query[Angle].to[List].transact(db)

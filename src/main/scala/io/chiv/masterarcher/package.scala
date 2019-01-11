@@ -23,6 +23,12 @@ package object masterarcher {
 
   case class Angle(value: Int)
 
+  case class XCoordGroup(value: Int)
+
+  object XCoordGroup {
+    def from(actualXCoord: Int) = XCoordGroup(Math.round(actualXCoord.toFloat / 50f) * 50)
+  }
+
   sealed trait ExitState
   case object GameEnded               extends ExitState
   case object UnableToLocateTarget    extends ExitState
