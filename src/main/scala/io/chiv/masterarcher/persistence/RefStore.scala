@@ -10,8 +10,8 @@ object RefStore {
   type Static       = Boolean
   type RefStoreData = Map[(Angle, XCoordGroup, Static), Map[HoldTime, List[Score]]]
   def apply(resultLog: Ref[IO, RefStoreData],
-            gameEndScores: Ref[IO, List[(Long, Score)]] = Ref.of[IO, List[(Long, Score)]](List.empty).unsafeRunSync())(
-      implicit timer: Timer[IO]) =
+            gameEndScores: Ref[IO, List[(Long, Score, Int)]] =
+              Ref.of[IO, List[(Long, Score, Int)]](List.empty).unsafeRunSync())(implicit timer: Timer[IO]) =
     new Store {
 
       override def persistResult(angle: Angle,
@@ -42,8 +42,12 @@ object RefStore {
               xCoordGroupK == xCoordGroup && staticK == static && map.exists(_._2.exists(_.value > 0))
           }.keys.map { case (angle, _, _) => angle }.toList)
 
-      override def persistGameEndScore(score: Score): IO[Unit] = {
-        timer.clock.realTime(MILLISECONDS).flatMap(now => gameEndScores.update(before => before :+ ((now, score))))
+      override def persistGameEndScore(score: Score, shotsTaken: Int): IO[Unit] = {
+        timer.clock
+          .realTime(MILLISECONDS)
+          .flatMap(now => gameEndScores.update(before => before :+ ((now, score, shotsTaken))))
       }
+      override def purgeScoresFor(angle: Angle, xCoordGroup: XCoordGroup, static: Static): IO[Unit] =
+        resultLog.update(_ - ((angle, xCoordGroup, static)))
     }
 }

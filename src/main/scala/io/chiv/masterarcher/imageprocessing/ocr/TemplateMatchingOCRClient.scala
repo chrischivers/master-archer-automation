@@ -2,13 +2,14 @@ package io.chiv.masterarcher.imageprocessing.ocr
 import java.io.File
 import java.util.UUID
 
-import cats.effect.IO
-import io.chiv.masterarcher.imageprocessing.templatematching.TemplateMatchingClient
+import cats.effect.IO.ioParallel
+import cats.effect.{ContextShift, IO}
 import cats.instances.list._
-import cats.syntax.traverse._
+import cats.syntax.parallel._
 import com.sksamuel.scrimage.Image
 import com.sksamuel.scrimage.nio.PngWriter
 import com.typesafe.scalalogging.StrictLogging
+import io.chiv.masterarcher.imageprocessing.templatematching.TemplateMatchingClient
 
 object TemplateMatchingOCRClient extends StrictLogging {
 
@@ -18,10 +19,10 @@ object TemplateMatchingOCRClient extends StrictLogging {
     i -> new File(getClass.getResource(s"/templates/numbers/number-$i.png").getFile)
   }
 
-  def apply(templateMatchingClient: TemplateMatchingClient) = new OCRClient {
+  def apply(templateMatchingClient: TemplateMatchingClient)(implicit contextShift: ContextShift[IO]) = new OCRClient {
     override def stringsFromImage(data: Array[Byte]): IO[List[String]] = {
       val numbersFromData = numberTemplates
-        .traverse {
+        .parTraverse {
           case (number, file) =>
             templateMatchingClient.matchLocationsIn(file, data).map(number -> _)
         }

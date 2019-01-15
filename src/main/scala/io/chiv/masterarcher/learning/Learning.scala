@@ -1,6 +1,5 @@
 package io.chiv.masterarcher.learning
 
-import cats.data.EitherT
 import cats.effect.IO
 import cats.syntax.flatMap._
 import com.typesafe.scalalogging.StrictLogging
@@ -13,30 +12,33 @@ import cats.syntax.traverse._
 import scala.util.Random
 
 trait Learning {
-  def calculateHoldTime(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): EitherT[IO, ExitState, HoldTime]
+  def calculateHoldTime(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): IO[HoldTime]
 }
 object Learning extends StrictLogging {
 
-  val MinHoldTime               = HoldTime(400.milliseconds)
-  val MaxHoldTime               = HoldTime(1400.milliseconds)
-  val DefaultHoldTime           = HoldTime((MaxHoldTime.value.minus(MinHoldTime.value).toMillis / 2).milliseconds)
-  val HoldTimeIncrementInterval = 50.milliseconds
+  val MinHoldTime     = HoldTime(400.milliseconds)
+  val MaxHoldTime     = HoldTime(1400.milliseconds)
+  val DefaultHoldTime = HoldTime((MaxHoldTime.value.minus(MinHoldTime.value).toMillis / 2).milliseconds)
   val AllPossibleHoldTimes =
     (MinHoldTime.value.toMillis to MaxHoldTime.value.toMillis)
-      .filter(_ % HoldTimeIncrementInterval.toMillis == 0)
+      .filter(_ % Config.HoldTimeIncrementIntervalMs == 0)
       .map(x => HoldTime(x.milliseconds))
 
   def apply(store: Store) = new Learning {
-    override def calculateHoldTime(angle: Angle,
-                                   xCoordGroup: XCoordGroup,
-                                   static: Boolean): EitherT[IO, ExitState, HoldTime] = {
+    override def calculateHoldTime(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): IO[HoldTime] = {
       for {
-        holdTimesAndScores <- EitherT.liftF(store.getHoldTimesAndScores(angle, xCoordGroup, static))
-        _                  <- EitherT.liftF(IO(logger.info(s"hold times and scores retrieved $holdTimesAndScores for angle $angle")))
-        holdTime <- EitherT(
-          calculateHoldTime(holdTimesAndScores, angle, xCoordGroup, static).flatMap(
-            _.fold[IO[Either[ExitState, HoldTime]]](IO
-              .pure(Left(NoScoringHoldTimesFound)))(holdTime => IO(Right(holdTime)))))
+        holdTimesAndScores <- store.getHoldTimesAndScores(angle, xCoordGroup, static)
+        _ <- IO(logger.info(
+          s"hold times and scores retrieved $holdTimesAndScores for angle $angle, static $static and xCoordGroup $xCoordGroup"))
+        holdTimeOpt <- calculateHoldTime(holdTimesAndScores, angle, xCoordGroup, static)
+        holdTime <- holdTimeOpt match {
+          case None =>
+            IO(logger.error(
+              s"No scoring hold times found for $angle, $xCoordGroup, static: $static. Clearing those records from DB")) >>
+              store.purgeScoresFor(angle, xCoordGroup, static) >>
+              calculateHoldTime(angle, xCoordGroup, static)
+          case Some(ht) => IO.pure(ht)
+        }
       } yield holdTime
     }
 
@@ -53,11 +55,17 @@ object Learning extends StrictLogging {
           })
       else {
         val holdTimesLeftToTry = AllPossibleHoldTimes.filterNot(holdTimesAndScores.keys.toList.contains).toList
-        logger.info(s"Hold times left to try for angle $angle: $holdTimesLeftToTry")
+        logger.info(
+          s"Hold times left to try for angle $angle, xCoordGroup $xCoordGroup and static $static : $holdTimesLeftToTry")
         val holdTimeAndHighestAverageScore = holdTimesAndScores
-          .map { case (holdTime, scores) => holdTime -> averageFrom(scores).getOrElse(Score.Zero) }
+          .map { case (holdTime, scores) => holdTime -> medianFrom(scores).getOrElse(Score.Zero) }
           .maxBy(_._2.value)
-        logger.info(s"Highest average score recorded for angle $angle is $holdTimeAndHighestAverageScore")
+        if (holdTimeAndHighestAverageScore._2 == Score.Zero) {
+          logger.info(s"Only zero scores recorded for angle $angle, xCoordGroup $xCoordGroup and static $static")
+        } else {
+          logger.info(
+            s"Highest average score recorded for angle $angle, xCoordGroup $xCoordGroup and static $static is $holdTimeAndHighestAverageScore")
+        }
         holdTimeAndHighestAverageScore match {
           case (_, Score.Zero) =>
             if (holdTimesLeftToTry.isEmpty) IO(None)
@@ -103,15 +111,14 @@ object Learning extends StrictLogging {
       }
     }
 
-    private def averageFrom(scores: List[Score]): Option[Score] = {
-      if (scores.isEmpty) None
-      else Some(Score(scores.map(_.value).sum / scores.size))
-    }
+    private def medianFrom(scores: List[Score]): Option[Score] =
+      scores.map(_.value).sorted.drop(scores.size / 2).headOption.map(Score(_))
 
     private def estimateHoldTimeFromOtherClosestAngle(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean)(
         store: Store): IO[Option[HoldTime]] = {
       for {
-        -      <- IO(logger.info(s"estimating hold times from other angles for xCoordGroup $xCoordGroup"))
+        - <- IO(
+          logger.info(s"estimating hold times from other angles for static: $static and xCoordGroup $xCoordGroup"))
         angles <- store.getAnglesWithNonZeroScores(xCoordGroup, static)
         closestAngle = angles
           .filterNot(_ == angle)
@@ -123,7 +130,7 @@ object Learning extends StrictLogging {
         holdTimesAndScores <- closestAngle.traverse(a => store.getHoldTimesAndScores(a, xCoordGroup, static))
         _                  <- IO(logger.info(s"hold times and scores for closest angle $closestAngle: $holdTimesAndScores"))
       } yield {
-        holdTimesAndScores.map(_.maxBy { case (_, score) => averageFrom(score).getOrElse(Score.Zero).value }).map {
+        holdTimesAndScores.map(_.maxBy { case (_, score) => medianFrom(score).getOrElse(Score.Zero).value }).map {
           case (holdTime, _) => holdTime
         }
 

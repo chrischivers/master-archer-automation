@@ -84,6 +84,24 @@ class PostgresStoreTest extends FlatSpec with TypeCheckedTripleEquals {
       .unsafeRunSync()
   }
 
+  it should "remove records for angle, xCoordGroup and static" in {
+    h2Transactor
+      .use { h2 =>
+        PostgresStore(h2).map { postgresStore =>
+          val angle       = Angle(60)
+          val xCoordGroup = XCoordGroup(500)
+          val static      = true
+          val holdTime    = HoldTime(700.milliseconds)
+          val score       = Score(30)
+          postgresStore.persistResult(angle, xCoordGroup, static, holdTime, score).unsafeRunSync()
+          postgresStore.purgeScoresFor(angle, xCoordGroup, static).unsafeRunSync()
+          val result = postgresStore.getHoldTimesAndScores(angle, xCoordGroup, static).unsafeRunSync()
+          result should ===(Map.empty[HoldTime, List[Score]])
+        }
+      }
+      .unsafeRunSync()
+  }
+
   it should "obtain unique angles that have non-zero score data (for same static and xcoordgroup value)" in {
     h2Transactor
       .use { h2 =>

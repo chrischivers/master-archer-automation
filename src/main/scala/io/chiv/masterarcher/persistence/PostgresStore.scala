@@ -33,7 +33,8 @@ object PostgresStore {
     val createGameEndScoresTable =
       sql"""CREATE TABLE IF NOT EXISTS game_end_scores (
            |timestamp BIGINT NOT NULL,
-           |score SMALLINT NOT NULL
+           |score SMALLINT NOT NULL,
+           |shots_taken SMALLINT NOT NULL
            |)""".stripMargin
 
     val createIndex1 =
@@ -94,11 +95,21 @@ object PostgresStore {
             select.query[Angle].to[List].transact(db)
           }
 
-          override def persistGameEndScore(score: Score): IO[Unit] = {
+          override def persistGameEndScore(score: Score, shotsTaken: Int): IO[Unit] = {
             val now    = System.currentTimeMillis()
-            val insert = sql"""INSERT INTO game_end_scores (timestamp, score)
-                              |VALUES ($now, $score)""".stripMargin
+            val insert = sql"""INSERT INTO game_end_scores (timestamp, score, shots_taken)
+                              |VALUES ($now, $score, $shotsTaken)""".stripMargin
             insert.update.run.transact(db).void
+          }
+          override def purgeScoresFor(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): IO[Unit] = {
+            val delete =
+              sql"""DELETE FROM log
+               |WHERE angle = ${angle}
+               |AND x_coord_group = ${xCoordGroup}
+               |AND static = ${static}
+             """.stripMargin
+
+            delete.update.run.transact(db).void
           }
         }
       }

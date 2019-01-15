@@ -12,8 +12,11 @@ import org.openqa.selenium.OutputType
 import org.scalactic.TypeCheckedTripleEquals
 import org.scalatest.Matchers._
 
+import scala.concurrent.ExecutionContext
+
 class ControllerTest extends FlatSpec with MockitoSugar with TypeCheckedTripleEquals {
 
+  implicit val contextShift                            = cats.effect.IO.contextShift(ExecutionContext.global)
   val templateMatchingClient                           = OpenCVTemplateMatchingClient()
   val ocrClient                                        = TemplateMatchingOCRClient(templateMatchingClient)
   val imageProcessingClient: ImageTransformationClient = ScrimageClient()

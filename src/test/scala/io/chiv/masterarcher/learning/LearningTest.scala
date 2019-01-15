@@ -27,8 +27,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(
-      Right(Learning.DefaultHoldTime))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(Learning.DefaultHoldTime)
   }
 
   "Learning module" should "return default hold time where no data exists for that static value" in {
@@ -45,8 +44,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(
-      Right(Learning.DefaultHoldTime))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(Learning.DefaultHoldTime)
   }
 
   it should "return highest scoring hold time using an average where multiple records for the same angle exists, with low scoring records either side of highest scoring" in {
@@ -73,7 +71,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(Right(holdTime1))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(holdTime1)
   }
 
   it should "return highest scoring hold time where a previous record for the same angle exists, with low scoring records either side of highest scoring" in {
@@ -89,7 +87,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(Right(holdTime))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(holdTime)
   }
 
   it should "return highest scoring hold time where a previous record for the same angle exists, with low scoring record below, and it is at the top of the Max range" in {
@@ -104,7 +102,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(Right(holdTime))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(holdTime)
   }
 
   it should "return closest hold time where a previous record for the same angle exists, but with no data either side" in {
@@ -117,7 +115,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learning: Learning = Learning(learningStore)
 
     List(holdTime + Learning.HoldTimeIncrementInterval, holdTime - Learning.HoldTimeIncrementInterval) should contain(
-      learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync().right.get)
+      learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync())
   }
 
   it should "return closest hold time above where a previous record for the same angle exists, but with data below only" in {
@@ -132,8 +130,8 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(
-      Right(holdTime + Learning.HoldTimeIncrementInterval))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(
+      holdTime + Learning.HoldTimeIncrementInterval)
   }
 
   it should "return hold time from closest other angle within the same xCoordGroup (where there is a score > 0) where no previous record for this angle exists" in {
@@ -154,7 +152,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(Right(holdTime1))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(holdTime1)
   }
 
   it should "return hold time from closest other angle (where there is a score > 0) where a record for this angle exists with a score of zero" in {
@@ -178,7 +176,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(Right(holdTime1))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(holdTime1)
   }
 
   it should "return closest untried hold time using data from closest other angle (where there is a score > 0) where no > 0 scores exist for this angle" in {
@@ -206,7 +204,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(Right(holdTime2))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(holdTime2)
   }
 
   it should "return default hold time where no previous record for this angle exists and other angles have scores of zero" in {
@@ -227,11 +225,10 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(
-      Right(Learning.DefaultHoldTime))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(Learning.DefaultHoldTime)
   }
 
-  it should "return an error when all possible hold times for that angle have been tried and all scored zero" in {
+  it should "purge records from database for that angle, xCoordGroup and static when all possible hold times for that angle have been tried and all scored zero" in {
     val angle       = Angle(30)
     val static      = true
     val xCoordGroup = XCoordGroup(500)
@@ -242,8 +239,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(
-      Left(NoScoringHoldTimesFound))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(Learning.DefaultHoldTime)
   }
 
   it should "return only remaining hold time when all others have been tried and all others have scored zero" in {
@@ -262,7 +258,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    learning.calculateHoldTime(angle, xCoordGroup, static).value.unsafeRunSync() should ===(Right(holdTimeRemaining))
+    learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(holdTimeRemaining)
   }
 
 }

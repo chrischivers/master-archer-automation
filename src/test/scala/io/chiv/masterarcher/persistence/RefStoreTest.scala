@@ -61,6 +61,22 @@ class RefStoreTest extends FlatSpec with TypeCheckedTripleEquals {
     result should ===(Map(holdTime -> List(score1, score2)))
   }
 
+  it should "remove records for angle, xCoordGroup and static" in {
+
+    val ref           = Ref.of[IO, RefStoreData](Map.empty).unsafeRunSync()
+    val learningStore = RefStore(ref)
+
+    val angle       = Angle(60)
+    val xCoordGroup = XCoordGroup(500)
+    val static      = true
+    val holdTime    = HoldTime(700.milliseconds)
+    val score       = Score(30)
+    learningStore.persistResult(angle, xCoordGroup, static, holdTime, score).unsafeRunSync()
+    learningStore.purgeScoresFor(angle, xCoordGroup, static).unsafeRunSync()
+    val result = learningStore.getHoldTimesAndScores(angle, xCoordGroup, static).unsafeRunSync()
+    result should ===(Map.empty[HoldTime, List[Score]])
+  }
+
   it should "obtain unique angles" in {
     val ref           = Ref.of[IO, RefStoreData](Map.empty).unsafeRunSync()
     val learningStore = RefStore(ref)

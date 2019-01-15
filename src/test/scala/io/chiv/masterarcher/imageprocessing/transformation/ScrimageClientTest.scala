@@ -8,7 +8,11 @@ import org.scalactic.TypeCheckedTripleEquals
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 
+import scala.concurrent.ExecutionContext
+
 class ScrimageClientTest extends FlatSpec with TypeCheckedTripleEquals {
+
+  implicit val contextShift = cats.effect.IO.contextShift(ExecutionContext.global)
 
   "Scrimage client" should "crop score from image" in {
     val scrimageClient: ImageTransformationClient = ScrimageClient()

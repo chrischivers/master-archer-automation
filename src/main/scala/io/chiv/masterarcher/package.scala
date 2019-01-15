@@ -21,19 +21,24 @@ package object masterarcher {
     def -(duration: FiniteDuration) = HoldTime(value.minus(duration))
   }
 
-  case class Angle(value: Int)
+  case class Angle(value: Double)
+
+  object Angle {
+    def from(unroundedAngle: Double) =
+      Angle(Math.round(unroundedAngle * (1 / Config.AnglePrecision)) / (1 / Config.AnglePrecision))
+  }
 
   case class XCoordGroup(value: Int)
 
   object XCoordGroup {
-    def from(actualXCoord: Int) = XCoordGroup(Math.round(actualXCoord.toFloat / 50f) * 50)
+    def from(actualXCoord: Int) =
+      XCoordGroup(Math.round(actualXCoord.toFloat / Config.XCoordGroupPrecision.toFloat) * Config.XCoordGroupPrecision)
   }
 
   sealed trait ExitState
-  case object GameEnded               extends ExitState
-  case object UnableToLocateTarget    extends ExitState
-  case object UnableToLocateShooter   extends ExitState
-  case object UnableToLocateScore     extends ExitState
-  case object NoScoringHoldTimesFound extends ExitState
-  case object TargetNotStatic         extends ExitState
+  case object GameEnded             extends ExitState
+  case object UnableToLocateTarget  extends ExitState
+  case object UnableToLocateShooter extends ExitState
+  case object UnableToLocateScore   extends ExitState
+  case object TargetNotStatic       extends ExitState
 }

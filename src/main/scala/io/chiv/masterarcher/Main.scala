@@ -5,6 +5,7 @@ import cats.effect.IO
 import cats.syntax.flatMap._
 import com.typesafe.scalalogging.StrictLogging
 import doobie.util.transactor.Transactor
+import io.chiv.masterarcher.GameRunner.Outcome
 import io.chiv.masterarcher.imageprocessing.ocr.TemplateMatchingOCRClient
 import io.chiv.masterarcher.persistence.PostgresStore
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
@@ -56,21 +57,25 @@ object Main extends App with StrictLogging {
     _ <- controller.click //advance to instruction screen
     _ <- IO.sleep(WaitTimeToLoadInstructions) //wait for instruction screen to load
     _ <- controller.click //advance to game
-    _ <- playFrames(gameRunner)(Score.Zero, shooterCoordinatesOpt = None)
+    _ <- playFrames(gameRunner)(Score.Zero, shotsTaken = 0, shooterCoordinatesOpt = None)
     _ <- IO(driver.quit())
 
   } yield ()
 
   private def playFrames(gameRunner: GameRunner)(accumulatedScore: Score,
+                                                 shotsTaken: Int,
                                                  shooterCoordinatesOpt: Option[Coordinates]): IO[Unit] = {
     for {
       _       <- IO.sleep(WaitTimeBetweenScreenshotAndNextShot) //wait for game to load
-      outcome <- gameRunner.playFrame(accumulatedScore, shooterCoordinatesOpt).value
+      outcome <- gameRunner.playFrame(accumulatedScore, shotsTaken, shooterCoordinatesOpt).value
       _ <- outcome match {
-        case Right((newAccumulatedScore, shooterCoordinates)) =>
-          playFrames(gameRunner)(newAccumulatedScore, Some(shooterCoordinates))
+        case Right(Outcome(newAccumulatedScore, newShotsTaken, shooterCoordinates)) =>
+          playFrames(gameRunner)(newAccumulatedScore, newShotsTaken, Some(shooterCoordinates))
         case Left(GameEnded) =>
-          IO(logger.info("Game ended. Restarting")) >> restartGame >> playFrames(gameRunner)(Score.Zero, None)
+          IO(logger.info("Game ended. Restarting")) >> restartGame >> playFrames(gameRunner)(Score.Zero,
+                                                                                             shotsTaken = 0,
+                                                                                             shooterCoordinatesOpt =
+                                                                                               None)
         case Left(other) => IO(logger.error(s"application terminated due to $other"))
       }
     } yield ()

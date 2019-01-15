@@ -9,6 +9,7 @@ import cats.effect.IO.ioParallel
 import cats.syntax.flatMap._
 import com.sksamuel.scrimage.{Image, Position}
 import com.typesafe.scalalogging.StrictLogging
+import io.chiv.masterarcher.GameRunner.Outcome
 import io.chiv.masterarcher.persistence.Store
 import io.chiv.masterarcher.imageprocessing.ocr.OCRClient
 import io.chiv.masterarcher.imageprocessing.templatematching.TemplateMatchingClient
@@ -19,11 +20,13 @@ import scala.concurrent.duration._
 import scala.util.{Random, Try}
 
 trait GameRunner {
-  type ScoreAndShooterCoordinates = (Score, Coordinates)
   def playFrame(previousAccumulatedScore: Score,
-                shooterCoordinates: Option[Coordinates]): EitherT[IO, ExitState, ScoreAndShooterCoordinates]
+                shotsTaken: Int,
+                shooterCoordinates: Option[Coordinates]): EitherT[IO, ExitState, Outcome]
 }
 object GameRunner extends StrictLogging {
+
+  case class Outcome(score: Score, shotsTaken: Int, shooterCoordinates: Coordinates)
 
   def apply(controller: Controller,
             templateMatchingClient: TemplateMatchingClient,
@@ -39,9 +42,9 @@ object GameRunner extends StrictLogging {
       val staticScreenReferenceTemplateMatchingFile = new File(
         getClass.getResource("/templates/static-background-reference-template.png").getFile)
 
-      override def playFrame(
-          previousAccumulatedScore: Score,
-          shooterCoordinates: Option[Coordinates]): EitherT[IO, ExitState, ScoreAndShooterCoordinates] = {
+      override def playFrame(previousAccumulatedScore: Score,
+                             shotsTaken: Int,
+                             shooterCoordinates: Option[Coordinates]): EitherT[IO, ExitState, Outcome] = {
         for {
           isStatic         <- EitherT.liftF(isTargetStatic)
           _                <- logInfo(if (isStatic) "Target is static" else "Target is moving")
@@ -55,20 +58,15 @@ object GameRunner extends StrictLogging {
           _                                <- logInfo(s"Shooter coordinates: $shooterCoordinatesToUse")
           targetCoordinatesAndTriggerTimes <- getTargetCoordinates(isStatic, beforeScreenshot)
           (targetCoordinates, triggerTimes) = targetCoordinatesAndTriggerTimes
-          xCoordGroup                       = XCoordGroup.from(targetCoordinates.x)
-          _     <- logInfo(s"Target coordinates obtained $targetCoordinates")
+          _ <- logInfo(s"Target coordinates obtained $targetCoordinates")
+          xCoordGroup = XCoordGroup.from(targetCoordinates.x)
+          _     <- logInfo(s"X Coordinate group: $xCoordGroup")
           angle <- EitherT.liftF(IO(angleFrom(targetCoordinates, shooterCoordinatesToUse)))
           _     <- logInfo(s"Angle calculated as $angle")
-          holdTime <- learning
-            .calculateHoldTime(angle, xCoordGroup, isStatic)
-            .leftSemiflatMap(exitState =>
-              writeOutScreenshot(beforeScreenshot, "no-scoring-hold-times").map(_ => exitState))
+          holdTime <- EitherT.liftF(
+            learning
+              .calculateHoldTime(angle, xCoordGroup, isStatic))
           _ <- logInfo(s"Hold time calculated as ${holdTime.value}")
-//          adjustedHoldTimeForDroop <- EitherT.liftF(
-//            IO(adjustHoldTimeForArrowDroop(holdTime, targetCoordinates, shooterCoordinatesToUse)))
-//          _ <- logInfo(
-//            s"Adjusted hold time to use calculated as ${adjustedHoldTimeForDroop.value} (Added ${adjustedHoldTimeForDroop.value
-//              .minus(holdTime.value)} milliseconds")
           _ <- logInfo("Taking shot...")
           _ <- EitherT.liftF {
             if (isStatic) controller.takeShot(holdTime)
@@ -85,7 +83,7 @@ object GameRunner extends StrictLogging {
               store.persistResult(angle, xCoordGroup, isStatic, holdTime, Score.Zero) >>
                 IO(logger.info(s"Game ended with score ${previousAccumulatedScore.value}")) >>
                 store
-                  .persistGameEndScore(previousAccumulatedScore)
+                  .persistGameEndScore(previousAccumulatedScore, shotsTaken)
                   .map(_ => GameEnded))
           else EitherT.right[ExitState](IO.unit)
           croppedAfterScreenshot <- EitherT.liftF(
@@ -105,7 +103,7 @@ object GameRunner extends StrictLogging {
           else EitherT.liftF(IO.unit)
           _ <- EitherT.liftF(store.persistResult(angle, xCoordGroup, isStatic, holdTime, scoreFromShot))
 
-        } yield (newAccumulatedScore, shooterCoordinatesToUse)
+        } yield Outcome(newAccumulatedScore, shotsTaken + 1, shooterCoordinatesToUse)
       }
 
       private def getTargetCoordinates(
@@ -137,11 +135,11 @@ object GameRunner extends StrictLogging {
                                                    highTargetPosition: Coordinates,
                                                    shooterCoordinates: Coordinates,
                                                    adjustedHoldTime: HoldTime): IO[Option[FiniteDuration]] = {
-//        val arrowTravelTimeCoefficient = 0.7
-//        val arrowTravelTime            = hypotenuseFrom(highTargetPosition, shooterCoordinates) * arrowTravelTimeCoefficient
+
+        val arrowTravelTime = hypotenuseFrom(highTargetPosition, shooterCoordinates) * Config.ArrowTravelTimeCoefficient
         for {
           now      <- timer.clock.realTime(MILLISECONDS)
-          waitTime <- IO(futureHighTargetTimes.map(_ - now - adjustedHoldTime.value.toMillis))
+          waitTime <- IO(futureHighTargetTimes.map(_ - now - adjustedHoldTime.value.toMillis - arrowTravelTime))
         } yield waitTime.find(_ > 200).map(_.milliseconds)
       }
 
@@ -211,8 +209,8 @@ object GameRunner extends StrictLogging {
         case object DistanceBetweenPointsNotWithinThreshold extends FailureCase
         case object InsufficientValidPoints                 extends FailureCase
 
-        def yCoordinatesWithinTolerance(coordinates: List[Coordinates], threshold: Int) =
-          Math.abs(coordinates.map(_.y).min - coordinates.map(_.y).max) <= threshold
+        def yCoordinatesWithinTolerance(coordinates: List[(Timestamp, Coordinates)], threshold: Int) =
+          Math.abs(coordinates.map(_._2.y).min - coordinates.map(_._2.y).max) <= threshold
 
         def adjustForLag(timesAndCoords: List[(Long, Coordinates)], lagTime: Int) = {
           timesAndCoords.mapWithIndex {
@@ -236,24 +234,11 @@ object GameRunner extends StrictLogging {
             .toList
         }
 
-        def filterOutSmallDistancesBetweenPoints(
-            in: List[(Timestamp, Coordinates, DistanceFromStart, DistanceToNext)],
-            minDistance: Int): List[(Timestamp, Coordinates, DistanceFromStart, DistanceToNext)] =
-          in.filter { case (_, _, _, distToNext) => distToNext > minDistance }
-
-        def filterOutLargeDistancesBetweenPoints(in: List[(Timestamp, Coordinates, DistanceFromStart, DistanceToNext)])
-          : List[(Timestamp, Coordinates, DistanceFromStart, DistanceToNext)] = {
-          val medianDistToNext = in.map { case (_, _, _, distToNext) => distToNext }.sorted.drop(in.size / 2).head
-          in.filter {
-            case (_, _, _, distToNext) => distToNext < (medianDistToNext * 1.5)
-          }
-        }
-
         def distanceBetweenPointsWithinTolerance(distanceBetweenPoints: List[DistanceToNext],
-                                                 maxDistanceBetweenPoints: Long,
+                                                 maxDistanceBetweenPointRange: Long,
                                                  minSampleSize: Int): Boolean =
           distanceBetweenPoints.size >= minSampleSize &&
-            Math.abs(distanceBetweenPoints.min - distanceBetweenPoints.max) <= maxDistanceBetweenPoints
+            Math.abs(distanceBetweenPoints.min - distanceBetweenPoints.max) <= maxDistanceBetweenPointRange
 
         def awaitTargetAtHighestPoint(highestPoint: Coordinates, tolerance: Int): IO[Timestamp] = {
 
@@ -267,6 +252,34 @@ object GameRunner extends StrictLogging {
               if (coords.exists(c => Math.abs(c.y - highestPoint.y) <= tolerance)) IO.pure(start)
               else randomSleep >> awaitTargetAtHighestPoint(highestPoint, tolerance)
           }
+        }
+
+        def calculateToleranceThreshold(highestSinglePoint: Coordinates, lowestSinglePoint: Coordinates) = {
+          val x = (lowestSinglePoint.y - highestSinglePoint.y) / 10
+          if (x > 8) 8 else x
+        }
+
+        def combineHighestAndLowest(highestPoints: List[(Timestamp, Coordinates)],
+                                    lowestPoints: List[(Timestamp, Coordinates)]) = {
+          val highestPointsSorted = highestPoints.sortBy { case (timestamp, _) => timestamp }
+          val lowestPointsSorted  = lowestPoints.sortBy { case (timestamp, _)  => timestamp }
+
+          def helper(accumulatedList: List[(Timestamp, Coordinates)],
+                     nextList: Option[String]): List[(Timestamp, Coordinates)] = {
+            nextList match {
+              case Some("low") =>
+                lowestPointsSorted
+                  .find { case (timestamp, _) => timestamp > accumulatedList.last._1 }
+                  .fold(helper(accumulatedList, None))(x => helper(accumulatedList :+ x, Some("high")))
+              case Some("high") =>
+                highestPointsSorted
+                  .find { case (timestamp, _) => timestamp > accumulatedList.last._1 }
+                  .fold(helper(accumulatedList, None))(x => helper(accumulatedList :+ x, Some("low")))
+              case None => accumulatedList
+              case _    => throw new RuntimeException("Bang")
+            }
+          }
+          helper(List(highestPoints.minBy { case (timestamp, _) => timestamp }), Some("low"))
         }
 
         def gatherData(sampleSize: Int): IO[List[(Timestamp, Coordinates)]] = {
@@ -292,46 +305,48 @@ object GameRunner extends StrictLogging {
         val processed: EitherT[IO, FailureCase, (Coordinates, List[Timestamp])] = for {
           startTime <- EitherT.liftF(timer.clock.realTime(MILLISECONDS))
           data      <- EitherT.liftF(gatherData(sampleSize))
-          sortedList    = data.sortBy { case (_, coords) => coords.y } //sorted from target highest to lowest
-          highestPoints = sortedList.take(6) // could also use lowest points
-          _ <- logInfo(s"Highest points: $highestPoints")
-          (_, highestSinglePoint) = highestPoints.head
+          sortedList              = data.sortBy { case (_, coords) => coords.y } //sorted from target highest to lowest
+          (_, highestSinglePoint) = sortedList.head
+          (_, lowestSinglePoint)  = sortedList.last
           _ <- logInfo(s"Highest single point: $highestSinglePoint")
-          coordinatesAreValid <- EitherT(
-            if (yCoordinatesWithinTolerance(highestPoints.map { case (_, coords) => coords }, threshold = 10))
-              IO(Right(()))
-            else IO(Left(CoordinatesNotWithinThreshold)))
-          _ <- logInfo(s"Coordinates within threshold? $coordinatesAreValid")
-          withDistancesFromStart              = addDistanceFromStart(highestPoints, startTime)
-          withDistancesBetweenPointsFirstPass = addDistanceBetweenPoints(withDistancesFromStart)
-          _ <- logInfo(s"Distance between points on first pass: $withDistancesBetweenPointsFirstPass")
-          withSmallDistancesBetweenPointsRemoved = filterOutSmallDistancesBetweenPoints(
-            withDistancesBetweenPointsFirstPass,
-            minDistance = 600)
-          withLargeDistancesBetweenPointsRemoved = filterOutLargeDistancesBetweenPoints(
-            withSmallDistancesBetweenPointsRemoved)
-          withDistanceBetweenPointsRemoved = withLargeDistancesBetweenPointsRemoved.map {
-            case (timestamp, coords, distFromStart, _) => (timestamp, coords, distFromStart)
-          }
-          _ <- EitherT(
-            if (withDistanceBetweenPointsRemoved.size < 2) IO(Left(InsufficientValidPoints)) else IO(Right(())))
-          withDistancesBetweenPointsSecondPass = addDistanceBetweenPoints(withDistanceBetweenPointsRemoved)
-          _ <- logInfo(s"Distance between points on second pass: $withDistancesBetweenPointsSecondPass")
-          distancesBetweenPoints = withDistancesBetweenPointsSecondPass.map {
+          _ <- logInfo(s"Lowest single point: $lowestSinglePoint")
+          threshold     = calculateToleranceThreshold(highestSinglePoint, lowestSinglePoint)
+          highestPoints = sortedList.takeWhile { case (_, coord) => coord.y - highestSinglePoint.y < threshold }
+          lowestPoints  = sortedList.reverse.takeWhile { case (_, coord) => lowestSinglePoint.y - coord.y < threshold }
+          _ <- logInfo(s"Highest points: $highestPoints")
+          _ <- logInfo(s"Lowest points: $lowestPoints")
+
+          _ <- EitherT.liftF(
+            if (highestPoints.size < 4 || lowestPoints.size < 4)
+              IO(Left(InsufficientValidPoints))
+            else IO(Right(())))
+
+          combinedList = combineHighestAndLowest(highestPoints, lowestPoints)
+          _ <- logInfo(s"Combined List $combinedList")
+
+          withDistancesFromStart = addDistanceFromStart(combinedList, startTime)
+          withDistancesBetweenPoints = addDistanceBetweenPoints(withDistancesFromStart).map {
             case (_, _, _, distToNext) => distToNext
           }
-          distanceBetweenPointsValid <- EitherT(
-            if (distanceBetweenPointsWithinTolerance(distancesBetweenPoints,
-                                                     maxDistanceBetweenPoints = 600,
+
+          _ <- logInfo(s"Distances between points: $withDistancesBetweenPoints")
+          distancesBetweenHighestPoints = withDistancesBetweenPoints
+            .grouped(2)
+            .filter(_.size == 2) //remove single element at end
+            .map(ls => ls.head + ls(1))
+            .toList
+          _ <- logInfo(s"Distances between highest points: $distancesBetweenHighestPoints")
+          _ <- EitherT(
+            if (distanceBetweenPointsWithinTolerance(distancesBetweenHighestPoints,
+                                                     maxDistanceBetweenPointRange = 600,
                                                      minSampleSize = 2)) IO(Right(()))
             else IO(Left(DistanceBetweenPointsNotWithinThreshold)))
-          _ <- logInfo(s"Distances between points are  within threshold? $distanceBetweenPointsValid")
-          averageDistanceBetweenPoints = distancesBetweenPoints.sum / distancesBetweenPoints.size
-          _                  <- logInfo(s"Average distance between points (i.e. cycle time): $averageDistanceBetweenPoints")
+          medianDistanceBetweenHighestPoints = unsafeMedianFrom(distancesBetweenHighestPoints)
+          _                  <- logInfo(s"Median distance between highest points (i.e. cycle time): $medianDistanceBetweenHighestPoints")
           _                  <- logInfo(s"Awaiting target to be at highest point")
           timestampAtHighest <- EitherT.liftF(awaitTargetAtHighestPoint(highestSinglePoint, 3))
           _                  <- logInfo(s"Timestamp at the highest point $timestampAtHighest")
-          triggerTimes = (1 to 5).map(i => timestampAtHighest + (averageDistanceBetweenPoints * i)).toList
+          triggerTimes = (1 to 5).map(i => timestampAtHighest + (medianDistanceBetweenHighestPoints * i)).toList
 
         } yield (highestSinglePoint, triggerTimes)
 
@@ -364,12 +379,12 @@ object GameRunner extends StrictLogging {
 //        holdTime + millisToAdd.toInt.milliseconds
 //      }
 
-//      private def hypotenuseFrom(target: Coordinates, shooter: Coordinates) = {
-//        val xDist = (target.x - shooter.x).toDouble
-//        val yDist =
-//          (if (shooter.y - target.y <= 0) 1 else shooter.y - target.y).toDouble
-//        Math.sqrt(xDist * xDist + yDist * yDist)
-//      }
+      private def hypotenuseFrom(target: Coordinates, shooter: Coordinates) = {
+        val xDist = (target.x - shooter.x).toDouble
+        val yDist =
+          (if (shooter.y - target.y <= 0) 1 else shooter.y - target.y).toDouble
+        Math.sqrt(xDist * xDist + yDist * yDist)
+      }
 
       private def randomSleep =
         IO.sleep(Random.shuffle((1 to 100).toList).head.milliseconds) //should prevent non termination if cycles in sync
@@ -379,10 +394,11 @@ object GameRunner extends StrictLogging {
         val difX = (targetCoordinates.x - shooterCoordinates.x).toDouble
         val difY = (targetCoordinates.y - shooterCoordinates.y).toDouble
         val degrees = Math
-          .toDegrees(Math.atan2(difX, difY))
-          .toInt - 90
+          .toDegrees(Math.atan2(difX, difY)) - 90.0
         assert(degrees >= 0) //TODO take out once working
-        Angle(degrees)
+        Angle.from(degrees)
       }
+
+      private def unsafeMedianFrom(list: List[Long]) = list.sorted.drop(list.size / 2).head
     }
 }
