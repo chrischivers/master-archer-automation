@@ -61,12 +61,12 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
 
     val newRef = createDataRef(
       Map((angle, xCoordGroup, static) -> Map(
-        holdTime1                                      -> List(score1a, score1b),
-        holdTime2                                      -> List(score2a, score2b),
-        holdTime1 + Learning.HoldTimeIncrementInterval -> List(Score(0)),
-        holdTime1 - Learning.HoldTimeIncrementInterval -> List(Score(0)),
-        holdTime2 + Learning.HoldTimeIncrementInterval -> List(Score(0)),
-        holdTime2 - Learning.HoldTimeIncrementInterval -> List(Score(0))
+        holdTime1                                    -> List(score1a, score1b),
+        holdTime2                                    -> List(score2a, score2b),
+        holdTime1 + Config.HoldTimeIncrementInterval -> List(Score(0)),
+        holdTime1 - Config.HoldTimeIncrementInterval -> List(Score(0)),
+        holdTime2 + Config.HoldTimeIncrementInterval -> List(Score(0)),
+        holdTime2 - Config.HoldTimeIncrementInterval -> List(Score(0))
       )))
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
@@ -82,8 +82,8 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val newRef = createDataRef(
       Map(
         (angle, xCoordGroup, static) -> Map(holdTime -> List(Score(10)),
-                                            holdTime + Learning.HoldTimeIncrementInterval -> List(Score(0)),
-                                            holdTime - Learning.HoldTimeIncrementInterval -> List(Score(0)))))
+                                            holdTime + Config.HoldTimeIncrementInterval -> List(Score(0)),
+                                            holdTime - Config.HoldTimeIncrementInterval -> List(Score(0)))))
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
@@ -98,7 +98,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val newRef =
       createDataRef(
         Map((angle, xCoordGroup, static) -> Map(holdTime -> List(Score(10)),
-                                                holdTime - Learning.HoldTimeIncrementInterval -> List(Score(0)))))
+                                                holdTime - Config.HoldTimeIncrementInterval -> List(Score(0)))))
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
@@ -114,7 +114,7 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
-    List(holdTime + Learning.HoldTimeIncrementInterval, holdTime - Learning.HoldTimeIncrementInterval) should contain(
+    List(holdTime + Config.HoldTimeIncrementInterval, holdTime - Config.HoldTimeIncrementInterval) should contain(
       learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync())
   }
 
@@ -126,12 +126,12 @@ class LearningTest extends FlatSpec with TypeCheckedTripleEquals {
     val newRef =
       createDataRef(
         Map((angle, xCoordGroup, static) -> Map(holdTime -> List(Score(10)),
-                                                holdTime - Learning.HoldTimeIncrementInterval -> List(Score(5)))))
+                                                holdTime - Config.HoldTimeIncrementInterval -> List(Score(5)))))
     val learningStore      = RefStore(newRef)
     val learning: Learning = Learning(learningStore)
 
     learning.calculateHoldTime(angle, xCoordGroup, static).unsafeRunSync() should ===(
-      holdTime + Learning.HoldTimeIncrementInterval)
+      holdTime + Config.HoldTimeIncrementInterval)
   }
 
   it should "return hold time from closest other angle within the same xCoordGroup (where there is a score > 0) where no previous record for this angle exists" in {

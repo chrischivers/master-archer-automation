@@ -13,7 +13,7 @@ object PostgresStore {
 
   implicit val holdTimeMeta: Meta[HoldTime]       = Meta[Int].timap(i => HoldTime(i.milliseconds))(_.value.toMillis.toInt)
   implicit val scoreMeta: Meta[Score]             = Meta[Int].timap(Score(_))(_.value)
-  implicit val angleMeta: Meta[Angle]             = Meta[Int].timap(Angle)(_.value)
+  implicit val angleMeta: Meta[Angle]             = Meta[Double].timap(Angle(_))(_.value)
   implicit val xCoordGroupMeta: Meta[XCoordGroup] = Meta[Int].timap(XCoordGroup(_))(_.value)
 
   case class LogRecord(angle: Angle, holdTime: HoldTime, score: Score)
@@ -23,7 +23,7 @@ object PostgresStore {
     val createLogTable =
       sql"""CREATE TABLE IF NOT EXISTS log (
            |id SERIAL PRIMARY KEY,
-           |angle SMALLINT NOT NULL,
+           |angle REAL NOT NULL,
            |x_coord_group SMALLINT NOT NULL,
            |static BOOLEAN NOT NULL,
            |hold_time SMALLINT NOT NULL,

@@ -21,7 +21,7 @@ object Learning extends StrictLogging {
   val DefaultHoldTime = HoldTime((MaxHoldTime.value.minus(MinHoldTime.value).toMillis / 2).milliseconds)
   val AllPossibleHoldTimes =
     (MinHoldTime.value.toMillis to MaxHoldTime.value.toMillis)
-      .filter(_ % Config.HoldTimeIncrementIntervalMs == 0)
+      .filter(_ % Config.HoldTimeIncrementInterval.toMillis == 0)
       .map(x => HoldTime(x.milliseconds))
 
   def apply(store: Store) = new Learning {
@@ -85,8 +85,8 @@ object Learning extends StrictLogging {
               })
             }
           case (holdTime, _) => {
-            val holdTimeIncrement = holdTime + HoldTimeIncrementInterval
-            val holdTimeDecrement = holdTime - HoldTimeIncrementInterval
+            val holdTimeIncrement = holdTime + Config.HoldTimeIncrementInterval
+            val holdTimeDecrement = holdTime - Config.HoldTimeIncrementInterval
             (holdTimesAndScores.get(holdTimeDecrement), holdTimesAndScores.get(holdTimeIncrement)) match {
               case (None, None) if holdTimesLeftToTry.contains(holdTimeIncrement) =>
                 IO(logger.info(s"Have not tried hold times above and below. Trying above (${holdTimeIncrement.value})")) >> IO(

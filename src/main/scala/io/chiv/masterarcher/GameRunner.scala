@@ -256,7 +256,9 @@ object GameRunner extends StrictLogging {
 
         def calculateToleranceThreshold(highestSinglePoint: Coordinates, lowestSinglePoint: Coordinates) = {
           val x = (lowestSinglePoint.y - highestSinglePoint.y) / 10
-          if (x > 8) 8 else x
+          if (x > Config.MaximumHighestLowestPointTolerancePixels) Config.MaximumHighestLowestPointTolerancePixels
+          else if (x == 0) 1
+          else x
         }
 
         def combineHighestAndLowest(highestPoints: List[(Timestamp, Coordinates)],
