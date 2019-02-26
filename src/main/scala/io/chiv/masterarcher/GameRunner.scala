@@ -168,7 +168,7 @@ object GameRunner extends StrictLogging {
 
       private def isTargetStatic: IO[Boolean] = {
         val timeBetweenScreenshots      = 100.milliseconds
-        val coordinateEqualityThreshold = 2
+        val coordinateEqualityThreshold = 4
 
         def approxEquals(coordinates1: Coordinates, coordinates2: Coordinates): Boolean = {
           Math.abs(coordinates1.x - coordinates2.x) <= coordinateEqualityThreshold &&
@@ -232,6 +232,14 @@ object GameRunner extends StrictLogging {
               case _ => throw new RuntimeException(s"List is the wrong shape {$in}")
             }
             .toList
+        }
+
+        def removeLargeDistancesBetweenPoints(in: List[DistanceToNext]): List[DistanceToNext] = {
+          val medianDistToNext = in.sorted.drop(in.size / 2).headOption
+          medianDistToNext.fold(in) { median =>
+            in.filter(_ < (median * 1.5))
+
+          }
         }
 
         def distanceBetweenPointsWithinTolerance(distanceBetweenPoints: List[DistanceToNext],
@@ -300,7 +308,7 @@ object GameRunner extends StrictLogging {
                     .map(coords => (timestamp, coords))
               }
               .map(_.collect { case (timestamp, Some(coords)) => (timestamp, coords) })
-            timeAndCoordsAdjustedForLag = adjustForLag(timesAndCoords, 95)
+            timeAndCoordsAdjustedForLag = adjustForLag(timesAndCoords, 125)
           } yield timeAndCoordsAdjustedForLag
         }
 
@@ -319,12 +327,15 @@ object GameRunner extends StrictLogging {
           _ <- logInfo(s"Lowest points: $lowestPoints")
 
           _ <- EitherT.liftF(
-            if (highestPoints.size < 4 || lowestPoints.size < 4)
-              IO(Left(InsufficientValidPoints))
+            if (highestPoints.size < 4 || lowestPoints.size < 4) IO(Left(InsufficientValidPoints))
             else IO(Right(())))
 
           combinedList = combineHighestAndLowest(highestPoints, lowestPoints)
           _ <- logInfo(s"Combined List $combinedList")
+
+          _ <- EitherT.liftF(
+            if (combinedList.size < 4) IO(Left(InsufficientValidPoints))
+            else IO(Right(())))
 
           withDistancesFromStart = addDistanceFromStart(combinedList, startTime)
           withDistancesBetweenPoints = addDistanceBetweenPoints(withDistancesFromStart).map {
@@ -338,12 +349,14 @@ object GameRunner extends StrictLogging {
             .map(ls => ls.head + ls(1))
             .toList
           _ <- logInfo(s"Distances between highest points: $distancesBetweenHighestPoints")
+          withLargeDistancesRemoved = removeLargeDistancesBetweenPoints(distancesBetweenHighestPoints)
+          _ <- logInfo(s"Distances between highest points with large distances removed: $withLargeDistancesRemoved")
           _ <- EitherT(
-            if (distanceBetweenPointsWithinTolerance(distancesBetweenHighestPoints,
+            if (distanceBetweenPointsWithinTolerance(withLargeDistancesRemoved,
                                                      maxDistanceBetweenPointRange = 600,
                                                      minSampleSize = 2)) IO(Right(()))
             else IO(Left(DistanceBetweenPointsNotWithinThreshold)))
-          medianDistanceBetweenHighestPoints = unsafeMedianFrom(distancesBetweenHighestPoints)
+          medianDistanceBetweenHighestPoints = unsafeMedianFrom(withLargeDistancesRemoved)
           _                  <- logInfo(s"Median distance between highest points (i.e. cycle time): $medianDistanceBetweenHighestPoints")
           _                  <- logInfo(s"Awaiting target to be at highest point")
           timestampAtHighest <- EitherT.liftF(awaitTargetAtHighestPoint(highestSinglePoint, 3))

@@ -119,8 +119,16 @@ object Learning extends StrictLogging {
       for {
         - <- IO(
           logger.info(s"estimating hold times from other angles for static: $static and xCoordGroup $xCoordGroup"))
-        angles <- store.getAnglesWithNonZeroScores(xCoordGroup, static)
-        closestAngle = angles
+        holdTimesAndScores <- store.getHoldTimesAndScoresForAllAngles(xCoordGroup, static)
+        anglesWithNonZeroMedianScores = holdTimesAndScores
+          .map {
+            case (ang, holdTimesScores) =>
+              ang -> holdTimesScores.map { case (holdTime, scores) => holdTime -> medianFrom(scores) }
+          }
+          .filter { case (_, holdtimeScores) => holdtimeScores.exists { case (_, score) => score.nonEmpty } }
+          .map { case (ang, _) => ang }
+          .toList
+        closestAngle = anglesWithNonZeroMedianScores
           .filterNot(_ == angle)
           .map(a => (a, Math.abs(a.value - angle.value)))
           .sortBy { case (_, distance) => distance }

@@ -35,12 +35,6 @@ object RefStore {
         resultLog.get
           .map(_.getOrElse((angle, xCoord, static), Map.empty))
       }
-      override def getAnglesWithNonZeroScores(xCoordGroup: XCoordGroup, static: Boolean): IO[List[Angle]] =
-        resultLog.get
-          .map(_.filter {
-            case ((_, xCoordGroupK, staticK), map) =>
-              xCoordGroupK == xCoordGroup && staticK == static && map.exists(_._2.exists(_.value > 0))
-          }.keys.map { case (angle, _, _) => angle }.toList)
 
       override def persistGameEndScore(score: Score, shotsTaken: Int): IO[Unit] = {
         timer.clock
@@ -49,5 +43,11 @@ object RefStore {
       }
       override def purgeScoresFor(angle: Angle, xCoordGroup: XCoordGroup, static: Static): IO[Unit] =
         resultLog.update(_ - ((angle, xCoordGroup, static)))
+
+      override def getHoldTimesAndScoresForAllAngles(xCoordGroup: XCoordGroup,
+                                                     static: Static): IO[Map[Angle, Map[HoldTime, List[Score]]]] =
+        resultLog.get.map(_.filter(x => x._1._2 == xCoordGroup && x._1._3 == static).map {
+          case ((angle, _, _), map) => angle -> map
+        })
     }
 }

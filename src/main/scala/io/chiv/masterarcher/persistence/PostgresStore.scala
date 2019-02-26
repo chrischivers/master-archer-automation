@@ -82,18 +82,6 @@ object PostgresStore {
               .transact(db)
               .map(_.groupBy(_.holdTime).map { case (holdTime, records) => holdTime -> records.map(_.score) })
           }
-          override def getAnglesWithNonZeroScores(xCoordGroup: XCoordGroup, static: Boolean): IO[List[Angle]] = {
-            //TODO does this need to include xCoord
-            val select =
-              sql"""SELECT DISTINCT angle
-                   |FROM log
-                   |WHERE score > 0
-                   |AND static = ${static}
-                   |AND x_coord_group = ${xCoordGroup}
-                   |""".stripMargin
-
-            select.query[Angle].to[List].transact(db)
-          }
 
           override def persistGameEndScore(score: Score, shotsTaken: Int): IO[Unit] = {
             val now    = System.currentTimeMillis()
@@ -111,6 +99,27 @@ object PostgresStore {
 
             delete.update.run.transact(db).void
           }
+          override def getHoldTimesAndScoresForAllAngles(
+              xCoordGroup: XCoordGroup,
+              static: Boolean): IO[Map[Angle, Map[HoldTime, List[Score]]]] = {
+            val select =
+              sql"""SELECT angle, hold_time, score
+                   |FROM log
+                   |WHERE x_coord_group = ${xCoordGroup}
+                   |AND static = ${static}""".stripMargin
+
+            select
+              .query[LogRecord]
+              .to[List]
+              .transact(db)
+              .map(_.groupBy(_.angle).map {
+                case (angle, logRecords1) =>
+                  angle -> logRecords1.groupBy(_.holdTime).map {
+                    case (holdTime, logRecords2) => holdTime -> logRecords2.map(_.score)
+                  }
+              })
+          }
+
         }
       }
   }

@@ -77,46 +77,46 @@ class RefStoreTest extends FlatSpec with TypeCheckedTripleEquals {
     result should ===(Map.empty[HoldTime, List[Score]])
   }
 
-  it should "obtain unique angles" in {
-    val ref           = Ref.of[IO, RefStoreData](Map.empty).unsafeRunSync()
-    val learningStore = RefStore(ref)
-
-    val angle1       = Angle(45)
-    val xCoordGroup1 = XCoordGroup(50)
-    val static1      = true
-    val holdTime1    = HoldTime(700.milliseconds)
-    val score1       = Score(30)
-
-    val angle2       = Angle(20)
-    val xCoordGroup2 = XCoordGroup(50)
-    val static2      = true
-    val holdTime2    = HoldTime(500.milliseconds)
-    val score2       = Score(15)
-
-    val angle3       = Angle(25)
-    val xCoordGroup3 = XCoordGroup(50)
-    val static3      = false
-    val holdTime3    = HoldTime(500.milliseconds)
-    val score3       = Score(15)
-
-    val angle4       = Angle(50)
-    val xCoordGroup4 = XCoordGroup(50)
-    val static4      = true
-    val holdTime4    = HoldTime(600.milliseconds)
-    val score4       = Score(0)
-
-    val angle5       = Angle(10)
-    val xCoordGroup5 = XCoordGroup(100)
-    val static5      = true
-    val holdTime5    = HoldTime(800.milliseconds)
-    val score5       = Score(15)
-
-    learningStore.persistResult(angle1, xCoordGroup1, static1, holdTime1, score1).unsafeRunSync()
-    learningStore.persistResult(angle2, xCoordGroup2, static2, holdTime2, score2).unsafeRunSync()
-    learningStore.persistResult(angle3, xCoordGroup3, static3, holdTime3, score3).unsafeRunSync()
-    learningStore.persistResult(angle4, xCoordGroup4, static4, holdTime4, score4).unsafeRunSync()
-    learningStore.persistResult(angle5, xCoordGroup5, static5, holdTime5, score5).unsafeRunSync()
-    val result = learningStore.getAnglesWithNonZeroScores(xCoordGroup = XCoordGroup(50), static = true).unsafeRunSync()
-    result should contain theSameElementsAs List(angle1, angle2)
-  }
+//  it should "obtain unique angles" in {
+//    val ref           = Ref.of[IO, RefStoreData](Map.empty).unsafeRunSync()
+//    val learningStore = RefStore(ref)
+//
+//    val angle1       = Angle(45)
+//    val xCoordGroup1 = XCoordGroup(50)
+//    val static1      = true
+//    val holdTime1    = HoldTime(700.milliseconds)
+//    val score1       = Score(30)
+//
+//    val angle2       = Angle(20)
+//    val xCoordGroup2 = XCoordGroup(50)
+//    val static2      = true
+//    val holdTime2    = HoldTime(500.milliseconds)
+//    val score2       = Score(15)
+//
+//    val angle3       = Angle(25)
+//    val xCoordGroup3 = XCoordGroup(50)
+//    val static3      = false
+//    val holdTime3    = HoldTime(500.milliseconds)
+//    val score3       = Score(15)
+//
+//    val angle4       = Angle(50)
+//    val xCoordGroup4 = XCoordGroup(50)
+//    val static4      = true
+//    val holdTime4    = HoldTime(600.milliseconds)
+//    val score4       = Score(0)
+//
+//    val angle5       = Angle(10)
+//    val xCoordGroup5 = XCoordGroup(100)
+//    val static5      = true
+//    val holdTime5    = HoldTime(800.milliseconds)
+//    val score5       = Score(15)
+//
+//    learningStore.persistResult(angle1, xCoordGroup1, static1, holdTime1, score1).unsafeRunSync()
+//    learningStore.persistResult(angle2, xCoordGroup2, static2, holdTime2, score2).unsafeRunSync()
+//    learningStore.persistResult(angle3, xCoordGroup3, static3, holdTime3, score3).unsafeRunSync()
+//    learningStore.persistResult(angle4, xCoordGroup4, static4, holdTime4, score4).unsafeRunSync()
+//    learningStore.persistResult(angle5, xCoordGroup5, static5, holdTime5, score5).unsafeRunSync()
+//    val result = learningStore.getAnglesWithNonZeroScores(xCoordGroup = XCoordGroup(50), static = true).unsafeRunSync()
+//    result should contain theSameElementsAs List(angle1, angle2)
+//  }
 }
