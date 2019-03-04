@@ -15,6 +15,7 @@ import cats.syntax.foldable._
 import cats.syntax.list._
 import cats.data.NonEmptyList
 
+import scala.collection.immutable.NumericRange
 import scala.util.{Random, Try}
 
 trait Learning {
@@ -24,14 +25,17 @@ object Learning extends StrictLogging {
 
   import Config._
 
-  val DefaultHoldTime = HoldTime((MaxHoldTime.value.minus(MinHoldTime.value).toMillis / 2).milliseconds)
-  val AllPossibleHoldTimes =
-    (MinHoldTime.value.toMillis to MaxHoldTime.value.toMillis)
-      .filter(_ % Config.HoldTimeIncrementInterval.toMillis == 0)
-      .map(x => HoldTime(x.milliseconds))
-      .toList
+  def rangeFor[T: Integral](minimum: T, maximum: T, step: T): List[T] = {
+    NumericRange(minimum, maximum, step).toList
+  }
 
-  //TODO factor in hold times already tried
+  val DefaultHoldTime = HoldTime(
+    (HoldTime.holdTimeNumeric.minus(MaxHoldTime, MinHoldTime).value.toMillis / 2).milliseconds)
+
+  val AllPossibleHoldTimes: List[HoldTime]  = rangeFor(MinHoldTime, MaxHoldTime, Config.HoldTimeStep)
+  val AllPossibleAngles: List[Angle]        = rangeFor(MinAngle, MaxAngle, AngleStep)
+  val AllPossibleXCoords: List[XCoordGroup] = rangeFor(MinXCoordGroup, MaxXCoordGroup, Config.XCoordGroupStep)
+
   def apply(store: Store) = new Learning {
     override def calculateHoldTime(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): IO[HoldTime] = {
 
@@ -42,16 +46,13 @@ object Learning extends StrictLogging {
           val holdTimesAlreadyTried = m.keys.toList
           val holdTimesLeftToTry    = AllPossibleHoldTimes.filterNot(holdTimesAlreadyTried.contains_(_))
           estimateHoldTime(angle, xCoordGroup, static)
-            .map(
-              ht =>
-                holdTimesLeftToTry
-                  .map(_.value.toMillis)
-                  .toNel
-                  .map(htsLeft => getClosest(ht.value.toMillis, htsLeft)))
+            .map(ht =>
+              holdTimesLeftToTry.toNel
+                .map(htsLeft => getClosest(ht, htsLeft)))
             .flatMap {
               case None =>
                 store.purgeScoresFor(angle, xCoordGroup, static) >> calculateHoldTime(angle, xCoordGroup, static)
-              case Some(time) => IO(HoldTime(time.milliseconds))
+              case Some(ht) => IO(ht)
             }
         }
         case m =>
@@ -79,29 +80,21 @@ object Learning extends StrictLogging {
 
     private def estimateHoldTime(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): IO[HoldTime] = {
 
-      def helper(angAbove: Angle,
-                 angBelow: Angle,
-                 xCoordAbove: XCoordGroup,
-                 xCoordBelow: XCoordGroup,
+      def helper(newAng: Angle,
+                 prevAngles: List[Angle],
+                 newXCoordGroup: XCoordGroup,
+                 prevXCoordGroups: List[XCoordGroup],
                  iterationsRemaining: Int): IO[Option[HoldTime]] = {
 
-        val angleAbove = angAbove.increment
-        val angleBelow = angBelow.decrement
+        //Copied from here: https://stackoverflow.com/questions/19810938/scala-combine-two-lists-in-an-alternating-fashion
+        def mergeListsWithAlteratingElements[T](l1: List[T], l2: List[T]): List[T] =
+          l1.map(List(_)).zipAll(l2.map(List(_)), Nil, Nil).flatMap(Function.tupled(_ ::: _))
 
-        val xCoordGroupAbove = xCoordAbove.increment
-        val xCoordGroupBelow = xCoordBelow.decrement
-
-        //tODO this is flawed as pairs get increasingly further apart without being checked against existing ones
-        val orderedCombinations = List(
-          (angle, xCoordGroupAbove),
-          (angle, xCoordGroupBelow),
-          (angleAbove, xCoordGroup),
-          (angleBelow, xCoordGroup),
-          (angleAbove, xCoordGroupAbove),
-          (angleAbove, xCoordGroupBelow),
-          (angleBelow, xCoordGroupAbove),
-          (angleBelow, xCoordGroupBelow)
-        )
+        val orderedCombinations: List[(Angle, XCoordGroup)] = {
+          val list1 = prevXCoordGroups.map(prev => (newAng, prev))
+          val list2 = prevAngles.map(prev => (prev, newXCoordGroup))
+          mergeListsWithAlteratingElements(list1, list2) :+ ((newAng, newXCoordGroup))
+        }
 
         val holdTimesAndMedianScores = orderedCombinations.traverse {
           case (a, x) => holdTimesAndMedianScore(a, x, static)
@@ -111,12 +104,24 @@ object Learning extends StrictLogging {
           .map(_.find(_.values.exists(_ != Score.Zero)))
           .flatMap {
             case None if iterationsRemaining > 0 =>
-              helper(angleAbove, angleBelow, xCoordGroupAbove, xCoordGroupBelow, iterationsRemaining - 1)
+              val remainingAngles          = AllPossibleAngles.filterNot(prevAngles.contains(_))
+              val nextAngle: Option[Angle] = remainingAngles.toNel.map(getClosest[Angle](angle, _))
+
+              val remainingXCoordGroups = AllPossibleXCoords.filterNot(prevXCoordGroups.contains(_))
+              val nextCoordGroup: Option[XCoordGroup] =
+                remainingXCoordGroups.toNel.map(getClosest[XCoordGroup](xCoordGroup, _))
+
+              helper(nextAngle.getOrElse(angle),
+                     prevAngles :+ newAng,
+                     nextCoordGroup.getOrElse(xCoordGroup),
+                     prevXCoordGroups :+ newXCoordGroup,
+                     iterationsRemaining - 1)
             case None if iterationsRemaining <= 0 => IO(None)
             case Some(m)                          => IO(highestScoringHoldTime(m))
           }
       }
-      helper(angle, angle, xCoordGroup, xCoordGroup, Config.closestScoresIterations).map {
+
+      helper(angle, List.empty, xCoordGroup, List.empty, Config.closestScoresIterations).map {
         case None    => DefaultHoldTime
         case Some(x) => x
       }
