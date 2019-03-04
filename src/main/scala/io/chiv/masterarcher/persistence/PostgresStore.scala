@@ -1,4 +1,5 @@
 package io.chiv.masterarcher.persistence
+import cats.data.NonEmptyList
 import cats.effect.IO
 import doobie.implicits._
 import cats.syntax.functor._
@@ -6,6 +7,9 @@ import doobie.util.Meta
 import doobie.util.transactor.Transactor
 import io.chiv.masterarcher
 import io.chiv.masterarcher.{Angle, HoldTime, Score, XCoordGroup}
+import cats.syntax.list._
+import cats.instances.list._
+import cats.kernel.Order
 
 import scala.concurrent.duration._
 
@@ -68,7 +72,8 @@ object PostgresStore {
           }
 
           override def getHoldTimesAndScores(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean)
-            : IO[Map[masterarcher.HoldTime, List[masterarcher.Score]]] = {
+            : IO[Map[masterarcher.HoldTime, NonEmptyList[masterarcher.Score]]] = {
+
             val select =
               sql"""SELECT angle, hold_time, score
                  |FROM log
@@ -80,7 +85,7 @@ object PostgresStore {
               .query[LogRecord]
               .to[List]
               .transact(db)
-              .map(_.groupBy(_.holdTime).map { case (holdTime, records) => holdTime -> records.map(_.score) })
+              .map(_.groupByNel(_.holdTime).mapValues(_.map(_.score)))
           }
 
           override def persistGameEndScore(score: Score, shotsTaken: Int): IO[Unit] = {
