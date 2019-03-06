@@ -3,7 +3,7 @@ import scala.concurrent.duration._
 
 object Config {
 
-  val closestScoresIterations                  = 3
+  val closestScoresIterations                  = 6
   val ArrowTravelTimeCoefficient               = 0.25
   val MaximumHighestLowestPointTolerancePixels = 5
 
@@ -15,7 +15,7 @@ object Config {
   val MaxAngle  = Angle(40) //todo check this
   val AngleStep = Angle(0.5)
 
-  val MinXCoordGroup  = XCoordGroup(200) //todo
-  val MaxXCoordGroup  = XCoordGroup(800) //todo
+  val MinXCoordGroup  = XCoordGroup(400) //todo
+  val MaxXCoordGroup  = XCoordGroup(1200) //todo
   val XCoordGroupStep = XCoordGroup(25)
 }

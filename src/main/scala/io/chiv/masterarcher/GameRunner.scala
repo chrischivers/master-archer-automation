@@ -14,7 +14,7 @@ import io.chiv.masterarcher.persistence.Store
 import io.chiv.masterarcher.imageprocessing.ocr.OCRClient
 import io.chiv.masterarcher.imageprocessing.templatematching.TemplateMatchingClient
 import io.chiv.masterarcher.imageprocessing.transformation.ImageTransformationClient
-import io.chiv.masterarcher.learning.Learning
+import io.chiv.masterarcher.calculation.HoldTimeCalculator
 
 import scala.concurrent.duration._
 import scala.util.{Random, Try}
@@ -30,7 +30,7 @@ object GameRunner extends StrictLogging {
 
   def apply(controller: Controller,
             templateMatchingClient: TemplateMatchingClient,
-            learning: Learning,
+            learning: HoldTimeCalculator,
             store: Store,
             imageTransformationClient: ImageTransformationClient,
             ocrClient: OCRClient)(implicit timer: Timer[IO], contextShift: ContextShift[IO]) =

@@ -4,6 +4,7 @@ import java.util.UUID
 import cats.effect.{ContextShift, IO, Resource}
 import doobie.h2.H2Transactor
 import doobie.util.transactor.Transactor
+import io.chiv.masterarcher.calculation.{HoldTimeCalculator, HoldTimeCalculatorTest}
 import io.chiv.masterarcher.persistence.{PostgresStore, Store}
 import org.scalatest.Assertion
 
@@ -28,5 +29,9 @@ trait TestFixtures {
 
   def withPostgresStore(f: Store => IO[Assertion])(implicit ec: ExecutionContext, contextShift: ContextShift[IO]) =
     h2Transactor.use(db => PostgresStore(db).flatMap(f)).unsafeRunSync()
+
+  def withCalculatorAndStore(f: (HoldTimeCalculator, Store) => IO[Assertion])(implicit ec: ExecutionContext,
+                                                                              contextShift: ContextShift[IO]) =
+    withPostgresStore(store => f(HoldTimeCalculator(store), store))
 
 }

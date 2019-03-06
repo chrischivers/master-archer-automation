@@ -60,7 +60,7 @@ package object masterarcher {
     implicit val angleNumeric = new Integral[Angle] {
       override def plus(x: Angle, y: Angle): Angle  = Angle(x.value + y.value)
       override def minus(x: Angle, y: Angle): Angle = Angle(x.value - y.value)
-      override def times(x: Angle, y: Angle): Angle = ???
+      override def times(x: Angle, y: Angle): Angle = Angle(x.value * y.value)
       override def negate(x: Angle): Angle          = Angle(-x.value)
       override def fromInt(x: Int): Angle           = Angle(x.toDouble)
       override def toInt(x: Angle): Int             = x.value.toInt

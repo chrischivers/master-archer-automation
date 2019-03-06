@@ -1,4 +1,4 @@
-package io.chiv.masterarcher.learning
+package io.chiv.masterarcher.calculation
 
 import cats.data.NonEmptyList
 import cats.effect.IO
@@ -18,10 +18,10 @@ import cats.data.NonEmptyList
 import scala.collection.immutable.NumericRange
 import scala.util.{Random, Try}
 
-trait Learning {
+trait HoldTimeCalculator {
   def calculateHoldTime(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): IO[HoldTime]
 }
-object Learning extends StrictLogging {
+object HoldTimeCalculator extends StrictLogging {
 
   import Config._
 
@@ -29,14 +29,17 @@ object Learning extends StrictLogging {
     NumericRange(minimum, maximum, step).toList
   }
 
-  val DefaultHoldTime = HoldTime(
-    (HoldTime.holdTimeNumeric.minus(MaxHoldTime, MinHoldTime).value.toMillis / 2).milliseconds)
+  val FallbackHoldTime = HoldTime(
+    ((HoldTime.holdTimeNumeric
+      .minus(MaxHoldTime, MinHoldTime)
+      .value
+      .toMillis / 2) + MinHoldTime.value.toMillis).milliseconds)
 
   val AllPossibleHoldTimes: List[HoldTime]  = rangeFor(MinHoldTime, MaxHoldTime, Config.HoldTimeStep)
   val AllPossibleAngles: List[Angle]        = rangeFor(MinAngle, MaxAngle, AngleStep)
   val AllPossibleXCoords: List[XCoordGroup] = rangeFor(MinXCoordGroup, MaxXCoordGroup, Config.XCoordGroupStep)
 
-  def apply(store: Store) = new Learning {
+  def apply(store: Store) = new HoldTimeCalculator {
     override def calculateHoldTime(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): IO[HoldTime] = {
 
       val holdTimesAndMedianScores = holdTimesAndMedianScore(angle, xCoordGroup, static)
@@ -122,7 +125,7 @@ object Learning extends StrictLogging {
       }
 
       helper(angle, List.empty, xCoordGroup, List.empty, Config.closestScoresIterations).map {
-        case None    => DefaultHoldTime
+        case None    => FallbackHoldTime
         case Some(x) => x
       }
     }

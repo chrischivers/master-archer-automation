@@ -10,7 +10,7 @@ import io.chiv.masterarcher.imageprocessing.ocr.TemplateMatchingOCRClient
 import io.chiv.masterarcher.persistence.PostgresStore
 import io.chiv.masterarcher.imageprocessing.templatematching.OpenCVTemplateMatchingClient
 import io.chiv.masterarcher.imageprocessing.transformation.ScrimageClient
-import io.chiv.masterarcher.learning.Learning
+import io.chiv.masterarcher.calculation.HoldTimeCalculator
 import org.openqa.selenium.Dimension
 import org.openqa.selenium.firefox.FirefoxDriver
 
@@ -44,7 +44,7 @@ object Main extends App with StrictLogging {
       Transactor
         .fromDriverManager[IO]("org.postgresql.Driver", "jdbc:postgresql://localhost/master-archer", "postgres", ""))
     postgresStore <- PostgresStore(transactor)
-    learning = Learning(postgresStore)
+    learning = HoldTimeCalculator(postgresStore)
     gameRunner = GameRunner(controller,
                             templateMatchingClient,
                             learning,
