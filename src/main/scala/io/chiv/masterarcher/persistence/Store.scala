@@ -8,8 +8,6 @@ trait Store {
   def getHoldTimesAndScores(angle: Angle,
                             xCoordGroup: XCoordGroup,
                             static: Boolean): IO[Map[HoldTime, NonEmptyList[Score]]]
-  def getHoldTimesAndScoresForAllAngles(xCoordGroup: XCoordGroup,
-                                        static: Boolean): IO[Map[Angle, Map[HoldTime, List[Score]]]]
   def persistGameEndScore(score: Score, shotsTaken: Int): IO[Unit]
   def purgeScoresFor(angle: Angle, xCoordGroup: XCoordGroup, static: Boolean): IO[Unit]
 }

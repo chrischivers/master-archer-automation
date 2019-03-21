@@ -26,7 +26,7 @@ class ScrimageClientTest extends FlatSpec with TypeCheckedTripleEquals {
     dimensionsOfFullImage._2 shouldBe >(dimensionsOfCroppedImage._2)
 
     val templateMatchingClient = OpenCVTemplateMatchingClient()
-    val ocrClient              = TemplateMatchingOCRClient(templateMatchingClient)
+    val ocrClient              = TemplateMatchingOCRClient(templateMatchingClient, scrimageClient)
     val recognisedText         = ocrClient.stringsFromImage(croppedImageAsBytes).unsafeRunSync()
     recognisedText should ===(List("5"))
 

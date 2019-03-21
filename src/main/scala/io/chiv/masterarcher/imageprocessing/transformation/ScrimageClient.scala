@@ -12,5 +12,8 @@ object ScrimageClient {
       IO {
         Image(in).resizeTo(width, height, position).bytes
       }
+    override def scaleImage(in: Array[Byte], factor: Double): IO[Array[Byte]] = IO {
+      Image(in).scale(factor).bytes
+    }
   }
 }

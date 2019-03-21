@@ -16,10 +16,10 @@ import scala.concurrent.ExecutionContext
 
 class ControllerTest extends FlatSpec with MockitoSugar with TypeCheckedTripleEquals {
 
-  implicit val contextShift                            = cats.effect.IO.contextShift(ExecutionContext.global)
-  val templateMatchingClient                           = OpenCVTemplateMatchingClient()
-  val ocrClient                                        = TemplateMatchingOCRClient(templateMatchingClient)
-  val imageProcessingClient: ImageTransformationClient = ScrimageClient()
+  implicit val contextShift                                = cats.effect.IO.contextShift(ExecutionContext.global)
+  val templateMatchingClient                               = OpenCVTemplateMatchingClient()
+  val imageTransformationClient: ImageTransformationClient = ScrimageClient()
+  val ocrClient                                            = TemplateMatchingOCRClient(templateMatchingClient, imageTransformationClient)
 
   "Controller" should "capture screenshot" in {
     val mockRemoteWebDriver    = mock[RemoteWebDriver]

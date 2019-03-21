@@ -36,7 +36,7 @@ object Main extends App with StrictLogging {
 
   val imageTransformationClient = ScrimageClient()
   val templateMatchingClient    = OpenCVTemplateMatchingClient()
-  val templateMatchingOCRClient = TemplateMatchingOCRClient(templateMatchingClient)
+  val templateMatchingOCRClient = TemplateMatchingOCRClient(templateMatchingClient, imageTransformationClient)
   val controller                = Controller(driver)
 
   val app = for {

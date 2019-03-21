@@ -26,6 +26,8 @@ trait GameRunner {
 }
 object GameRunner extends StrictLogging {
 
+  val defaultSampleSizeForMovingTarget = 40
+
   case class Outcome(score: Score, shotsTaken: Int, shooterCoordinates: Coordinates)
 
   def apply(controller: Controller,
@@ -120,9 +122,10 @@ object GameRunner extends StrictLogging {
                     Left(UnableToLocateTarget)))(c => IO.pure(Right(c)))))
           } yield (targetCoordinates, None)
         } else {
-          EitherT.liftF[IO, ExitState, (Coordinates, Option[List[Long]])](handleMovingTarget(40).map {
-            case (coordinates, futureTimes) => (coordinates, Some(futureTimes))
-          })
+          EitherT.liftF[IO, ExitState, (Coordinates, Option[List[Long]])](
+            handleMovingTarget(defaultSampleSizeForMovingTarget).map {
+              case (coordinates, futureTimes) => (coordinates, Some(futureTimes))
+            })
         }
       }
 
@@ -338,8 +341,12 @@ object GameRunner extends StrictLogging {
             else IO(Right(())))
 
           withDistancesFromStart = addDistanceFromStart(combinedList, startTime)
-          withDistancesBetweenPoints = addDistanceBetweenPoints(withDistancesFromStart).map {
-            case (_, _, _, distToNext) => distToNext
+          withDistancesBetweenPoints <- EitherT.fromEither[IO] {
+            Try(addDistanceBetweenPoints(withDistancesFromStart)).toOption
+              .fold[Either[FailureCase, List[DistanceToNext]]](Left(InsufficientValidPoints))(list =>
+                Right(list.map {
+                  case (_, _, _, distToNext) => distToNext
+                }))
           }
 
           _ <- logInfo(s"Distances between points: $withDistancesBetweenPoints")
@@ -368,7 +375,7 @@ object GameRunner extends StrictLogging {
         processed.value.flatMap {
           case Left(failure) =>
             IO(logger.info(s"Processing of moving target failed due to $failure. Retrying")) >> handleMovingTarget(
-              sampleSize = sampleSize + 10)
+              sampleSize = if (sampleSize + 10 > 200) defaultSampleSizeForMovingTarget else sampleSize + 10)
           case Right((coordinates, triggerTimes)) => IO.pure((coordinates, triggerTimes))
         }
       }

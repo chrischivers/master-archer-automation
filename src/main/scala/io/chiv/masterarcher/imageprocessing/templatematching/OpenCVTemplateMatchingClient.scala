@@ -1,6 +1,7 @@
 package io.chiv.masterarcher.imageprocessing.templatematching
 import java.io.File
 import java.nio.DoubleBuffer
+import java.util.UUID
 
 import cats.effect.IO
 import com.typesafe.scalalogging.StrictLogging
@@ -47,6 +48,7 @@ object OpenCVTemplateMatchingClient extends StrictLogging {
                         -1,
                         8,
                         0)
+//              imwrite(s"/tmp/debug-${UUID.randomUUID().toString}.png", sourceImgGray)
               helper(previouslyFound :+ Coordinates(max.x, max.y)) //corresponds to top left corner of matching rectangle
             } else previouslyFound
           }
